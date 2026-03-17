@@ -1,0 +1,22 @@
+build/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.log
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+*.suo
+
+# Nuke session files
+*.autosave
+*.nk.bak
+
+# Python cache
+__pycache__/
+*.pyc
