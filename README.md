@@ -6,25 +6,6 @@ Forked from [mateuszwojt/NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDe
 
 ![Node with inputs connected](images/denoiser_node_usage.png)
 
----
-
-## What's different from the original
-
-The original plugin could freeze or crash the host machine when used with animation sequences or multiple concurrent frames. This fork fixes that and adds a proper Windows distribution.
-
-**Stability fixes (C++):**
-- Global OIDN device shared across all node instances — eliminates per-instance construction/destruction races during multi-threaded Nuke renders
-- `CRITICAL_SECTION` instead of `std::mutex` for thread synchronization — `std::mutex` global constructors don't reliably run when a DLL is loaded via `LoadLibrary` inside Nuke, causing segfaults on lock
-- `DllMain` initializes the critical section on `DLL_PROCESS_ATTACH`, guaranteed to run before any plugin callbacks
-- OIDN DLL search path resolved relative to the plugin DLL at load time (`GetModuleFileNameW`) — no hardcoded install paths
-
-**Distribution:**
-- All OIDN 2.1.0 runtime DLLs bundled in `oidn-cpu-only/bin/` — no separate OIDN installation needed
-- `install.py` / `install.bat` — one-click installer that copies the plugin and patches `~/.nuke/init.py`
-- `uninstall.py` — clean removal
-
-**Why OIDN 2.1.0 and not newer:**
-OIDN 2.4.x ships with `tbb12.dll` v2022.3, which conflicts with Nuke's own `tbb.dll` v2020.3 when both are in the same process, causing immediate crashes. OIDN 2.1.0's `tbb12.dll` (v2021.10) is compatible with Nuke's TBB version.
 
 ---
 
@@ -38,7 +19,7 @@ OIDN 2.4.x ships with `tbb12.dll` v2022.3, which conflicts with Nuke's own `tbb.
 
 ## Install
 
-### Option A — Double-click (recommended for artists)
+### Option A — Double-click (recommended)
 
 1. Download or clone this repository
 2. Double-click `install.bat`
@@ -51,6 +32,7 @@ python install.py
 ```
 
 The installer:
+
 - Copies the plugin folder to `~/.nuke/nuke-denoiser/`
 - Adds a `pluginAddPath` entry to `~/.nuke/init.py`
 - Cleans up any old denoiser entries from previous installs
@@ -111,6 +93,26 @@ The output `denoiser.dll` should be placed at the repo root (or in your `~/.nuke
 **OIDN path:** Replace `c:/bin/oidn-2.1.0` with wherever you extracted the [OIDN 2.1.0 release](https://github.com/RenderKit/oidn/releases/tag/v2.1.0). **Do not use a newer OIDN version** — see the TBB compatibility note above.
 
 **Nuke path:** The CMake config auto-detects Nuke from standard install locations. If detection fails, set `-DNUKE_ROOT="C:/Program Files/Nuke16.0v8"`.
+
+---
+
+## What's different from the original
+
+The original plugin could freeze or crash the host machine when used with animation sequences or multiple concurrent frames. This fork fixes that and adds a proper Windows distribution.
+
+**Stability fixes (C++):**
+- Global OIDN device shared across all node instances — eliminates per-instance construction/destruction races during multi-threaded Nuke renders
+- `CRITICAL_SECTION` instead of `std::mutex` for thread synchronization — `std::mutex` global constructors don't reliably run when a DLL is loaded via `LoadLibrary` inside Nuke, causing segfaults on lock
+- `DllMain` initializes the critical section on `DLL_PROCESS_ATTACH`, guaranteed to run before any plugin callbacks
+- OIDN DLL search path resolved relative to the plugin DLL at load time (`GetModuleFileNameW`) — no hardcoded install paths
+
+**Distribution:**
+- All OIDN 2.1.0 runtime DLLs bundled in `oidn-cpu-only/bin/` — no separate OIDN installation needed
+- `install.py` / `install.bat` — one-click installer that copies the plugin and patches `~/.nuke/init.py`
+- `uninstall.py` — clean removal
+
+**Why OIDN 2.1.0 and not newer:**
+OIDN 2.4.x ships with `tbb12.dll` v2022.3, which conflicts with Nuke's own `tbb.dll` v2020.3 when both are in the same process, causing immediate crashes. OIDN 2.1.0's `tbb12.dll` (v2021.10) is compatible with Nuke's TBB version.
 
 ---
 
