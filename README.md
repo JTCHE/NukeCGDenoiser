@@ -2,10 +2,9 @@
 
 A Nuke node plugin for denoising CG renders using [Intel Open Image Denoise (OIDN)](https://github.com/RenderKit/oidn).
 
+Bundles a one-click install script.
+
 Forked from [mateuszwojt/NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDenoiser) with significant Windows stability fixes and a self-contained distribution system.
-
-![Node with inputs connected](images/denoiser_node_usage.png)
-
 
 ---
 
@@ -13,30 +12,45 @@ Forked from [mateuszwojt/NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDe
 
 - **Windows 10/11 x64** (this fork is Windows-only)
 - **Nuke 16** (tested on 16.0v8; other recent versions likely work)
-- No GPU required — CPU denoising only
+- **CUDA** drivers for Nvidia GPUs (**Optional**, defaults to CPU denoising)
 
 ---
 
 ## Install
 
-### Option A — Double-click (recommended)
+### Option A — Straightforward (recommended)
 
-1. Download or clone this repository
-2. Double-click `install.bat`
-3. Restart Nuke
+Copy paste this command in a **Windows Command Prompt** _(cmd.exe)_
 
-### Option B — Python
+```
+cd Downloads
+git clone https://github.com/JTCHE/NukeCGDenoiser
+cd NukeCGDenoiser
+install.bat
+```
+
+### Option B — Double-click
+
+1. Close Nuke
+2. Clone this repository
+3. Double-click `install.bat`
+4. Restart Nuke
+5. Delete this folder
+
+### Option C — Python
 
 ```
 python install.py
 ```
+
+### What it does
 
 The installer:
 
 - Copies the plugin folder to `~/.nuke/nuke-denoiser/`
 - Adds a `pluginAddPath` entry to `~/.nuke/init.py`
 - Cleans up any old denoiser entries from previous installs
-- Is idempotent — safe to run multiple times
+- Is safe to run multiple times _(idempotent)_
 
 ### Uninstall
 
@@ -50,30 +64,30 @@ Removes the `init.py` entry and optionally deletes the plugin folder.
 
 ## Usage
 
-1. In Nuke, go to **Nodes > MW > Denoiser** (or Tab-search `Denoiser`)
+1. In Nuke, Tab-search **`Denoiser`** _(or go to Nodes > MW > Denoiser)_
 2. Connect inputs:
 
-| Input | Content | Required |
-|-------|---------|----------|
-| 0 — beauty | RGB beauty pass | Yes |
-| 1 — albedo | Albedo AOV (RGB) | No |
-| 2 — normal | Normal AOV (RGB) | No |
+   | Input      | Content           | Required |
+   | ---------- | ----------------- | -------- |
+   | 0 - Beauty | Beauty pass (RGB) | ✅       |
+   | 1 - Albedo | Albedo AOV (RGB)  | ❌       |
+   | 2 - Normal | Normal AOV (RGB)  | ❌       |
+   - If your EXR has all AOVs in a single stream, use **Shuffle** nodes to extract albedo and normal into separate **RGB** streams before connecting
+     ![Node with inputs connected](images/denoiser_node_usage.png)
 
-3. If your EXR has all AOVs in a single stream, use **Shuffle** nodes to extract albedo and normal into separate RGB streams before connecting
-4. Choose quality and render
+3. Choose **Device Type**, **Quality**, and render
+   ![Node parameters](images/denoiser_node_params.png)
 
-![Node parameters](images/denoiser_node_params.png)
+### Properties
 
-### Knobs
-
-| Knob | Description |
-|------|-------------|
-| Device Type | CPU (only stable option — see limitations) |
-| Quality | **Balanced** (default) or **High** |
-| HDR | Enable for high-dynamic-range input (recommended) |
+| Knob                   | Description                                           |
+| ---------------------- | ----------------------------------------------------- |
+| Device Type            | **CPU** (default) or **CUDA**                         |
+| Quality                | **Balanced** (default) or **High**                    |
+| HDR                    | Enable for high-dynamic-range input (recommended)     |
 | Enable thread affinity | Pins OIDN threads to hardware threads for performance |
-| Memory limit (MB) | Cap OIDN memory usage; 0 = no limit |
-| Number of runs | Feed the image through the filter N times |
+| Memory limit (MB)      | Cap OIDN memory usage; 0 = no limit                   |
+| Number of runs         | Feed the image through the filter N times             |
 
 ---
 
@@ -101,13 +115,16 @@ The output `denoiser.dll` should be placed at the repo root (or in your `~/.nuke
 The original plugin could freeze or crash the host machine when used with animation sequences or multiple concurrent frames. This fork fixes that and adds a proper Windows distribution.
 
 **Stability fixes (C++):**
+
 - Global OIDN device shared across all node instances — eliminates per-instance construction/destruction races during multi-threaded Nuke renders
 - `CRITICAL_SECTION` instead of `std::mutex` for thread synchronization — `std::mutex` global constructors don't reliably run when a DLL is loaded via `LoadLibrary` inside Nuke, causing segfaults on lock
 - `DllMain` initializes the critical section on `DLL_PROCESS_ATTACH`, guaranteed to run before any plugin callbacks
 - OIDN DLL search path resolved relative to the plugin DLL at load time (`GetModuleFileNameW`) — no hardcoded install paths
 
 **Distribution:**
-- All OIDN 2.1.0 runtime DLLs bundled in `oidn-cpu-only/bin/` — no separate OIDN installation needed
+
+- OIDN 2.1.0 CPU runtime DLLs bundled in `oidn/bin/` — no separate OIDN installation needed
+- CUDA device DLL (`OpenImageDenoise_device_cuda.dll`) not bundled due to size; drop it in `oidn/bin/` to enable GPU denoising
 - `install.py` / `install.bat` — one-click installer that copies the plugin and patches `~/.nuke/init.py`
 - `uninstall.py` — clean removal
 
@@ -118,7 +135,7 @@ OIDN 2.4.x ships with `tbb12.dll` v2022.3, which conflicts with Nuke's own `tbb.
 
 ## Known limitations
 
-- **GPU denoising is disabled.** The CUDA/HIP/SYCL device types appear in the knob but are untested and likely conflict with Nuke's GPU context. Use CPU only.
+- **CUDA denoising is experimental.** Requires an NVIDIA GPU and driver 522.06+. Drop `OpenImageDenoise_device_cuda.dll` from the [OIDN 2.1.0 release](https://github.com/RenderKit/oidn/releases/tag/v2.1.0) into `oidn/bin/` to enable it. HIP and SYCL are not supported.
 - **Windows only.** The original plugin supports Linux and macOS; this fork's distribution system is Windows-specific. The C++ source itself is cross-platform.
 - **RGB only.** Alpha is not processed and passes through unchanged.
 - **Inputs must match resolution.** If beauty, albedo, and normal are different sizes, reformat them to match before connecting.
