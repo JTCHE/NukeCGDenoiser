@@ -8,8 +8,6 @@
 static const char *const _deviceTypeNames[] = {
 	"CPU",
 	"CUDA",
-	"HIP",
-	"SYCL",
 	0
 };
 
@@ -17,8 +15,6 @@ static const char *const _deviceTypeNames[] = {
 static const OIDNDeviceType _deviceTypeValues[] = {
 	OIDN_DEVICE_TYPE_CPU,
 	OIDN_DEVICE_TYPE_CUDA,
-	OIDN_DEVICE_TYPE_HIP,
-	OIDN_DEVICE_TYPE_SYCL,
 };
 
 static const char *const _qualityNames[] = {
@@ -53,7 +49,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 	{
 	case DLL_PROCESS_ATTACH:
 	{
-		// Resolve OIDN bin path relative to this DLL's location (oidn-cpu-only/bin/)
+		// Resolve OIDN bin path relative to this DLL's location (oidn/bin/)
 		// so the plugin is fully self-contained and requires no hardcoded install paths.
 		wchar_t dllPath[MAX_PATH];
 		GetModuleFileNameW(hinstDLL, dllPath, MAX_PATH);
@@ -61,7 +57,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 		if (!lastSlash) lastSlash = wcsrchr(dllPath, L'/');
 		if (lastSlash) *lastSlash = L'\0';
 		wchar_t oidnPath[MAX_PATH];
-		swprintf_s(oidnPath, MAX_PATH, L"%s\\oidn-cpu-only\\bin", dllPath);
+		swprintf_s(oidnPath, MAX_PATH, L"%s\\oidn\\bin", dllPath);
 		SetDllDirectoryW(oidnPath);
 		InitializeCriticalSection(&g_cs);
 		break;
@@ -152,9 +148,7 @@ void DenoiserIop::knobs(Knob_Callback f)
 	Enumeration_knob(f, &m_deviceType, _deviceTypeNames, "device", "Device Type");
 	Tooltip(f,
 			"CPU: regular CPU denoising backend\n"
-			"CUDA: CUDA-based denoising backend (may conflict with Nuke's GPU context)\n"
-			"HIP: AMD GPU via HIP\n"
-			"SYCL: Intel GPU via SYCL");
+			"CUDA: NVIDIA GPU via CUDA (requires CUDA-capable GPU and drivers)");
 
 	Enumeration_knob(f, &m_quality, _qualityNames, "quality", "Quality");
 	Tooltip(f,

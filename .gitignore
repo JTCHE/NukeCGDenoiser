@@ -23,3 +23,6 @@ __pycache__/
 
 # Vexp stuff
 .vexp/
+
+# Test output
+example/test_out.jpg
