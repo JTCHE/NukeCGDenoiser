@@ -20,3 +20,6 @@ cmake_install.cmake
 # Python cache
 __pycache__/
 *.pyc
+
+# Vexp stuff
+.vexp/
