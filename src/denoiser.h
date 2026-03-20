@@ -57,6 +57,7 @@ public:
 private:
 	bool m_bHDR;
 	bool m_bAffinity;
+	bool m_bCleanAux;
 
 	float m_maxMem;
 
@@ -65,6 +66,10 @@ private:
 	int m_numRuns;
 	int m_quality;
 
-	ChannelSet m_defaultChannels;
-	int m_defaultNumberOfChannels;
+	ChannelSet m_beautyChannels;
+	ChannelSet m_albedoChannels;
+	ChannelSet m_normalChannels;
+
+	void fetchToBuffer(int inputIdx, const ChannelSet& channels, const Box& format,
+	                   float* buffer, unsigned int width, unsigned int height);
 };

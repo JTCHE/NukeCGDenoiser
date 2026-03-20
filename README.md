@@ -4,9 +4,9 @@ A Nuke node plugin for denoising CG renders using [Intel Open Image Denoise (OID
 
 Bundles a one-click install script.
 
-Forked from [mateuszwojt/NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDenoiser) with significant Windows stability fixes and a self-contained distribution system.
+Forked from [mateuszwojt/NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDenoiser) with significant Windows stability fixes and quality-of-life improvements.
 
----
+## ![Denoiser Comparison](denoiser_comparison.png)
 
 ## Requirements
 
@@ -17,6 +17,8 @@ Forked from [mateuszwojt/NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDe
 ---
 
 ## Install
+
+Make sure **Nuke is closed** before proceeding with the install.
 
 ### Option A — Straightforward (recommended)
 
@@ -31,11 +33,10 @@ install.bat
 
 ### Option B — Double-click
 
-1. Close Nuke
-2. Clone this repository
-3. Double-click `install.bat`
-4. Restart Nuke
-5. Delete this folder
+1. Clone this repository
+2. Double-click `install.bat`
+3. Restart Nuke
+4. Delete this folder
 
 ### Option C — Python
 
@@ -65,29 +66,48 @@ Removes the `init.py` entry and optionally deletes the plugin folder.
 ## Usage
 
 1. In Nuke, Tab-search **`Denoiser`** _(or go to Nodes > MW > Denoiser)_
-2. Connect inputs:
+2. Connect your render and choose a workflow:
 
-   | Input      | Content           | Required |
-   | ---------- | ----------------- | -------- |
-   | 0 - Beauty | Beauty pass (RGB) | ✅       |
-   | 1 - Albedo | Albedo AOV (RGB)  | ❌       |
-   | 2 - Normal | Normal AOV (RGB)  | ❌       |
-   - If your EXR has all AOVs in a single stream, use **Shuffle** nodes to extract albedo and normal into separate **RGB** streams before connecting
-     ![Node with inputs connected](images/denoiser_node_usage.png)
+### Workflow A — Multi-layer EXR (recommended)
 
-3. Choose **Device Type**, **Quality**, and render
-   ![Node parameters](images/denoiser_node_params.png)
+Place the Denoiser directly on a multi-layer EXR Read node. Use the **layer picker knobs** to select which passes to use:
+
+- **Beauty layer** — the layer to denoise (default: `rgb`). The denoised result is written to the `rgb` channels; the original layer is left untouched.
+- **Albedo layer** — albedo or diffuse pass for auxiliary-guided denoising. Set to `none` to skip.
+- **Normal layer** — world-space normals for auxiliary-guided denoising. Set to `none` to skip. Must be accompanied by Albedo layer.
+
+All other layers pass through unchanged, so the node works like a Shuffle + Denoise in one step.
+
+### Workflow B — Separate inputs
+
+![Denoiser Usage - Workflow B](denoiser_node_usage.png)
+
+Connect separate images to each input:
+
+| Input      | Content           | Required |
+| ---------- | ----------------- | -------- |
+| 0 - Beauty | Beauty pass (RGB) | ✅       |
+| 1 - Albedo | Albedo AOV (RGB)  | ❌       |
+| 2 - Normal | Normal AOV (RGB)  | ❌       |
+
+When albedo or normal inputs are connected, the corresponding layer picker knobs are disabled — the node reads `RGB` directly from the connected input. This is useful for split EXRs, PNGs, or renders that output each AOV as a separate file.
+
+### Alpha denoising
+
+Enable the alpha checkbox (A) in the **Beauty layer** knob to also denoise the alpha channel. Alpha is denoised in a separate pass since OIDN processes 3 channels at a time.
 
 ### Properties
 
-| Knob                   | Description                                           |
-| ---------------------- | ----------------------------------------------------- |
-| Device Type            | **CPU** (default) or **CUDA**                         |
-| Quality                | **Balanced** (default) or **High**                    |
-| HDR                    | Enable for high-dynamic-range input (recommended)     |
-| Enable thread affinity | Pins OIDN threads to hardware threads for performance |
-| Memory limit (MB)      | Cap OIDN memory usage; 0 = no limit                   |
-| Number of runs         | Feed the image through the filter N times             |
+| Knob                           | Description                                                                                                                            |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Device Type                    | **CPU** (default) or **CUDA**                                                                                                          |
+| Quality                        | **Balanced** (default) or **High**                                                                                                     |
+| HDR                            | Enable for high-dynamic-range input (recommended)                                                                                      |
+| Enable thread affinity         | Pins OIDN threads to hardware threads for performance                                                                                  |
+| Memory limit (MB)              | Cap OIDN memory usage; 0 = no limit                                                                                                    |
+| Number of runs                 | Feed the image through the filter N times                                                                                              |
+| Beauty / Albedo / Normal layer | Select which layer from the input EXR to use for each role. Albedo and Normal are disabled when their inputs are connected             |
+| Prefilter Auxiliary Passes     | Tells OIDN to prefilter noisy albedo/normal before using them for guidance. Leave unchecked if your auxiliary passes are already clean |
 
 ---
 
@@ -137,7 +157,6 @@ OIDN 2.4.x ships with `tbb12.dll` v2022.3, which conflicts with Nuke's own `tbb.
 
 - **CUDA denoising is experimental.** Requires an NVIDIA GPU and driver 522.06+. Drop `OpenImageDenoise_device_cuda.dll` from the [OIDN 2.1.0 release](https://github.com/RenderKit/oidn/releases/tag/v2.1.0) into `oidn/bin/` to enable it. HIP and SYCL are not supported.
 - **Windows only.** The original plugin supports Linux and macOS; this fork's distribution system is Windows-specific. The C++ source itself is cross-platform.
-- **RGB only.** Alpha is not processed and passes through unchanged.
 - **Inputs must match resolution.** If beauty, albedo, and normal are different sizes, reformat them to match before connecting.
 
 ---
