@@ -97,7 +97,7 @@ def main():
             recycle(plugin_dir)
             print(f"  Sent to Recycle Bin: {plugin_dir}")
         else:
-            print("  Kept plugin folder.")
+            print("  Kept plugin folder. (init.py patch was still removed — Nuke will no longer load the plugin.)")
     else:
         print(f"  Plugin folder not found at {plugin_dir} — nothing to remove.")
 
