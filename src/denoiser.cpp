@@ -3,7 +3,7 @@
 #include "denoiser.h"
 
 #include <iostream>
-#include <iomanip>
+#include <algorithm>
 
 static const char *const _deviceTypeNames[] = {
 	"CPU",
@@ -48,20 +48,8 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 	switch (fdwReason)
 	{
 	case DLL_PROCESS_ATTACH:
-	{
-		// Resolve OIDN bin path relative to this DLL's location (oidn/bin/)
-		// so the plugin is fully self-contained and requires no hardcoded install paths.
-		wchar_t dllPath[MAX_PATH];
-		GetModuleFileNameW(hinstDLL, dllPath, MAX_PATH);
-		wchar_t* lastSlash = wcsrchr(dllPath, L'\\');
-		if (!lastSlash) lastSlash = wcsrchr(dllPath, L'/');
-		if (lastSlash) *lastSlash = L'\0';
-		wchar_t oidnPath[MAX_PATH];
-		swprintf_s(oidnPath, MAX_PATH, L"%s\\oidn\\bin", dllPath);
-		SetDllDirectoryW(oidnPath);
 		InitializeCriticalSection(&g_cs);
 		break;
-	}
 	case DLL_PROCESS_DETACH:
 		// Release device before CRT teardown to avoid use-after-free during shutdown
 		if (g_deviceReady)
@@ -70,7 +58,6 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 			g_deviceReady = false;
 		}
 		DeleteCriticalSection(&g_cs);
-		SetDllDirectoryW(NULL); // restore default DLL search order
 		break;
 	default:
 		break;
@@ -104,6 +91,8 @@ void DenoiserIop::setupDevice(int deviceType, int numThreads, bool affinity)
 {
 	CsLock lock(g_cs);
 
+	deviceType = std::clamp(deviceType, 0, (int)(sizeof(_deviceTypeValues) / sizeof(_deviceTypeValues[0])) - 1);
+
 	// If device type changed, tear down existing device
 	if (g_deviceReady && g_deviceType != deviceType)
 	{
@@ -114,32 +103,51 @@ void DenoiserIop::setupDevice(int deviceType, int numThreads, bool affinity)
 	if (g_deviceReady)
 		return;
 
-	try
+	int tryType = deviceType;
+	for (int attempt = 0; attempt < 2; attempt++)
 	{
-		OIDNDeviceType devType = _deviceTypeValues[deviceType];
-		g_device = oidnNewDevice(devType);
+		try
+		{
+			OIDNDeviceType devType = _deviceTypeValues[tryType];
+			g_device = oidnNewDevice(devType);
 
-		const char *errorMessage;
-		if (g_device.getError(errorMessage) != oidn::Error::None)
-			throw std::runtime_error(errorMessage);
+			const char *errorMessage;
+			if (g_device.getError(errorMessage) != oidn::Error::None)
+				throw std::runtime_error(errorMessage);
 
-		g_device.set("numThreads", numThreads);
-		g_device.set("setAffinity", affinity);
-		g_device.commit();
+			// CPU-only settings — OIDN silently ignores these on GPU devices
+			if (tryType == 0)
+			{
+				g_device.set("numThreads", numThreads);
+				g_device.set("setAffinity", affinity);
+			}
+			g_device.commit();
 
-		if (g_device.getError(errorMessage) != oidn::Error::None)
-			throw std::runtime_error(errorMessage);
+			if (g_device.getError(errorMessage) != oidn::Error::None)
+				throw std::runtime_error(errorMessage);
 
-		g_deviceType  = deviceType;
-		g_deviceReady = true;
-		std::cerr << "[Denoiser] OIDN device ready (type=" << deviceType << ")" << std::endl;
-	}
-	catch (const std::exception &e)
-	{
-		g_device = nullptr;
-		g_deviceReady = false;
-		std::string message = e.what();
-		std::cerr << "[Denoiser] Device init failed: " << message << std::endl;
+			g_deviceType  = tryType;
+			g_deviceReady = true;
+
+			if (tryType != deviceType)
+				std::cerr << "[Denoiser] CUDA unavailable — fell back to CPU" << std::endl;
+			else
+				std::cerr << "[Denoiser] OIDN device ready (type=" << tryType << ")" << std::endl;
+			return;
+		}
+		catch (const std::exception &e)
+		{
+			g_device = nullptr;
+			g_deviceReady = false;
+			std::cerr << "[Denoiser] Device init failed (type=" << tryType << "): " << e.what() << std::endl;
+
+			// If a non-CPU device failed, retry with CPU
+			if (tryType != 0)
+			{
+				tryType = 0;
+				continue;
+			}
+		}
 	}
 }
 
@@ -180,6 +188,11 @@ int DenoiserIop::knob_changed(Knob* k)
 		g_device = nullptr;
 		g_deviceReady = false;
 		g_deviceType  = -1;
+
+		// Grey out CPU-only knobs when a GPU device is selected
+		bool isCPU = (m_deviceType == 0);
+		knob("affinity")->enable(isCPU);
+		knob("maxmem")->enable(isCPU);
 		return 1;
 	}
 	return 0;
@@ -203,6 +216,10 @@ void DenoiserIop::_validate(bool for_real)
 {
 	copy_info();
 	info_.channels(m_defaultChannels);
+
+	m_numRuns = std::clamp(m_numRuns, 1, 32);
+	m_quality = std::clamp(m_quality, 0, (int)(sizeof(_qualityValues) / sizeof(_qualityValues[0])) - 1);
+	m_deviceType = std::clamp(m_deviceType, 0, (int)(sizeof(_deviceTypeValues) / sizeof(_deviceTypeValues[0])) - 1);
 }
 
 void DenoiserIop::getRequests(const Box & box, const ChannelSet & channels, int count, RequestOutput & reqData) const
@@ -237,6 +254,14 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 		{
 			error("[OIDN]: Device initialization failed");
 			return;
+		}
+		// If device fell back to CPU, update the knob so the UI reflects reality
+		if (g_deviceType != m_deviceType)
+		{
+			knob("device")->set_value(g_deviceType);
+			knob("affinity")->enable(true);
+			knob("maxmem")->enable(true);
+			warning("[Denoiser] CUDA unavailable — fell back to CPU");
 		}
 	}
 
@@ -280,6 +305,10 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 	if (m_maxMem > 0.f)
 		filter.set("maxMemoryMB", static_cast<int>(m_maxMem));
 	filter.set("quality", _qualityValues[m_quality]);
+	filter.setProgressMonitorFunction(
+		[](void* ctx, double) -> bool {
+			return !static_cast<DenoiserIop*>(ctx)->aborted();
+		}, this);
 	filter.commit();
 
 	{
