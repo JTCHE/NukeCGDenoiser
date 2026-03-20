@@ -27,5 +27,6 @@ __pycache__/
 # Test output
 example/test_out.jpg
 
-# Nuke Autosave files
+# Nuke files
 *.nk~
+example_multilayer.nk
