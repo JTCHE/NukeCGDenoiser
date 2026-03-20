@@ -59,7 +59,6 @@ Read {
  xpos 142
  ypos -229
 }
-set N2c39a000 [stack 0]
 Dot {
  name Dot4
  xpos 176
@@ -93,8 +92,10 @@ Read {
  xpos -2
  ypos -343
 }
+set N8be68d00 [stack 0]
 Denoiser {
  inputs 3
+ device CUDA
  quality High
  affinity true
  name Denoiser1
@@ -109,14 +110,15 @@ push 0
 push 0
 push 0
 push 0
-push $N2c39a000
+push $N8be68d00
 Viewer {
  inputs 10
- frame 1
  frame_range 1-100
+ input_number 9
  translate {-0.4864000082 -0.5490000248}
- monitorOutNDISenderName "Nuke - example - Viewer1"
+ monitorOutNDISenderName "NukeX - example - Viewer1"
  name Viewer1
+ selected true
  xpos -2
  ypos 111
  hide_input true
