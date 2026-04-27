@@ -349,6 +349,10 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 			error("[OIDN]: Device initialization failed");
 			return;
 		}
+		// Drain any stale error state left on the shared device by a previously
+		// cancelled run — otherwise Cancelled leaks into this fresh evaluation.
+		const char *staleMsg;
+		g_device.getError(staleMsg);
 		// If device fell back to CPU, update the knob so the UI reflects reality
 		if (g_deviceType != m_deviceType)
 		{
@@ -434,7 +438,10 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 	{
 		CsLock lock(g_cs);
 		const char *errMsg;
-		if (g_device.getError(errMsg) != oidn::Error::None)
+		auto err = g_device.getError(errMsg);
+		if (err == oidn::Error::Cancelled)
+			return; // user-cancelled — bail silently, do not flag as node error
+		if (err != oidn::Error::None)
 		{
 			error("[OIDN] filter.commit: %s", errMsg);
 			return;
@@ -483,11 +490,18 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 	try
 	{
 		for (unsigned int run = 0; run < (unsigned int)m_numRuns; run++)
+		{
+			if (aborted() || cancelled())
+				return;
 			filter.execute();
+		}
 
 		CsLock lock(g_cs);
 		const char *errorMessage;
-		if (g_device.getError(errorMessage) != oidn::Error::None)
+		auto err = g_device.getError(errorMessage);
+		if (err == oidn::Error::Cancelled)
+			return;
+		if (err != oidn::Error::None)
 		{
 			error("[OIDN]: %s", errorMessage);
 			return;
@@ -495,6 +509,16 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 	}
 	catch (const std::exception &e)
 	{
+		// Drain device error state so it doesn't leak into the next run
+		{
+			CsLock lock(g_cs);
+			const char *drained;
+			g_device.getError(drained);
+		}
+		// Cooperative cancellation (user changed a knob, viewer re-evaluated, Esc, etc.)
+		// is not a real error — bail silently and let Nuke schedule the next evaluation.
+		if (aborted() || cancelled())
+			return;
 		std::string message = e.what();
 		std::cerr << "[Denoiser] Exception in filter.execute: " << message << std::endl;
 		error("[OIDN]: %s", message.c_str());
@@ -636,7 +660,10 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 			{
 				CsLock lock(g_cs);
 				const char *errMsg;
-				if (g_device.getError(errMsg) != oidn::Error::None)
+				auto err = g_device.getError(errMsg);
+				if (err == oidn::Error::Cancelled)
+					return;
+				if (err != oidn::Error::None)
 				{
 					error("[OIDN] alpha filter.commit: %s", errMsg);
 					return;
@@ -646,10 +673,20 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 			try
 			{
 				for (unsigned int run = 0; run < (unsigned int)m_numRuns; run++)
+				{
+					if (aborted() || cancelled())
+						return;
 					alphaFilter.execute();
+				}
 			}
 			catch (const std::exception &e)
 			{
+				// Drain device error so the cancellation doesn't leak into the next render
+				CsLock lock(g_cs);
+				const char *drained;
+				g_device.getError(drained);
+				if (aborted() || cancelled())
+					return;
 				std::cerr << "[Denoiser] Alpha denoise failed: " << e.what() << std::endl;
 			}
 
