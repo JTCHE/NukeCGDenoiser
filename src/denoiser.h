@@ -34,6 +34,7 @@ public:
 
 	void knobs(Knob_Callback f);
 	int knob_changed(Knob* k);
+	void autoDetectAOVs();
 
 	void _validate(bool);
 

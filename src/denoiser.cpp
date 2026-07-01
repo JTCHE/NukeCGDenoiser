@@ -4,6 +4,67 @@
 
 #include <iostream>
 #include <algorithm>
+#include <regex>
+#include <set>
+#include <string>
+#include <vector>
+
+namespace {
+
+// Layer-name patterns for auto-detecting AOVs, most-specific first, so a
+// renderer-specific name (e.g. Arnold's "diffuse_albedo") wins over a
+// generic one that could also match another pass.
+const std::vector<std::regex> kAlbedoPatterns = {
+	std::regex("diffuse[_ ]?albedo", std::regex::icase),        // Arnold
+	std::regex("denois(e|ing)[_ ]?albedo", std::regex::icase),  // Cycles denoiser
+	std::regex("\\balbedo\\b", std::regex::icase),               // Karma, Redshift, V-Ray, Corona
+	std::regex("diff(use)?[_ ]?col(or)?", std::regex::icase),   // Cycles "DiffCol" / diffuse_color
+};
+
+const std::vector<std::regex> kNormalPatterns = {
+	std::regex("denois(e|ing)[_ ]?normal", std::regex::icase),  // Cycles denoiser
+	std::regex("normals?", std::regex::icase),                  // Normal/Normals/WorldNormals
+	std::regex("^nn?$", std::regex::icase),                     // Arnold "N", RenderMan "Nn"
+};
+
+// Scans `available` (excluding any layer name in `exclude`) for a layer whose
+// name matches one of `patterns`, checked in priority order. On a match,
+// fills `result` with every channel belonging to that layer and returns true.
+bool findMatchingLayer(const DD::Image::ChannelSet& available,
+                        const std::set<std::string>& exclude,
+                        const std::vector<std::regex>& patterns,
+                        DD::Image::ChannelSet& result)
+{
+	std::vector<std::string> layers;
+	std::set<std::string> seen;
+	foreach (z, available)
+	{
+		const char* name = DD::Image::getLayerName(z);
+		if (!name || exclude.count(name) || !seen.insert(name).second)
+			continue;
+		layers.push_back(name);
+	}
+
+	for (const auto& pattern : patterns)
+	{
+		for (const auto& layer : layers)
+		{
+			if (!std::regex_search(layer, pattern))
+				continue;
+			result = DD::Image::ChannelSet();
+			foreach (z, available)
+			{
+				const char* name = DD::Image::getLayerName(z);
+				if (name && layer == name)
+					result += z;
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
+} // namespace
 
 static const char *const _deviceTypeNames[] = {
 	"CPU",
@@ -188,11 +249,15 @@ void DenoiserIop::knobs(Knob_Callback f)
 	Input_ChannelSet_knob(f, &m_albedoChannels, 0, "albedo_layer", "Albedo layer");
 	Tooltip(f, "Albedo / diffuse layer for auxiliary-guided denoising.\n"
 			   "Select from the beauty input when no albedo input is connected.\n"
+			   "Auto-detected from common renderer AOV names (Arnold, Cycles, Karma, "
+			   "V-Ray, Redshift, RenderMan, Corona, ...) when this input's layers change.\n"
 			   "Set to 'none' to run without albedo guidance.");
 
 	Input_ChannelSet_knob(f, &m_normalChannels, 0, "normal_layer", "Normal layer");
 	Tooltip(f, "World-space normal layer for auxiliary-guided denoising.\n"
 			   "Select from the beauty input when no normal input is connected.\n"
+			   "Auto-detected from common renderer AOV names (Arnold, Cycles, Karma, "
+			   "V-Ray, Redshift, RenderMan, Corona, ...) when this input's layers change.\n"
 			   "Set to 'none' to run without normal guidance.");
 
 	Bool_knob(f, &m_bCleanAux, "prefilter_aux", "Prefilter Auxiliary Passes");
@@ -217,7 +282,48 @@ int DenoiserIop::knob_changed(Knob *k)
 		knob("maxmem")->enable(isCPU);
 		return 1;
 	}
+	if (k == &Knob::inputChange || k == &Knob::showPanel)
+	{
+		autoDetectAOVs();
+		return 1;
+	}
 	return 0;
+}
+
+// Auto-fills the albedo/normal layer pickers from common renderer AOV names
+// (Arnold, Cycles, Karma, V-Ray, Redshift, RenderMan, Corona, ...) found on
+// input 0. Only fires when the corresponding input isn't directly connected
+// and the picker is still at its untouched default ("none") — so it won't
+// clobber a deliberate user choice, but it also can't tell a deliberate
+// "none" apart from "never touched" if AOVs change after the fact.
+void DenoiserIop::autoDetectAOVs()
+{
+	if (!input(0))
+		return;
+	ChannelSet available = input(0)->channels();
+
+	std::set<std::string> exclude;
+	foreach (z, m_beautyChannels)
+	{
+		const char* name = getLayerName(z);
+		if (name)
+			exclude.insert(name);
+	}
+
+	bool hasAlbedoInput = (node_inputs() > 1 && input(1) != nullptr);
+	bool hasNormalInput = (node_inputs() > 2 && input(2) != nullptr);
+
+	ChannelSet match;
+	if (!hasAlbedoInput && m_albedoChannels.size() == 0 &&
+	    findMatchingLayer(available, exclude, kAlbedoPatterns, match))
+	{
+		knob("albedo_layer")->set_text(getLayerName(match.first()));
+	}
+	if (!hasNormalInput && m_normalChannels.size() == 0 &&
+	    findMatchingLayer(available, exclude, kNormalPatterns, match))
+	{
+		knob("normal_layer")->set_text(getLayerName(match.first()));
+	}
 }
 
 const char *DenoiserIop::input_label(int n, char *) const
