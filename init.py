@@ -15,7 +15,19 @@ if os.path.exists(_cuda_dll):
 for _dll in _dlls:
     _k32.LoadLibraryW(os.path.join(_oidn_bin, _dll))
 _k32.SetDllDirectoryW(None)
-del _k32, _dll, _dlls, _cuda_dll, _oidn_bin, _plugin_dir
+del _k32, _dll, _dlls, _cuda_dll, _oidn_bin
 
 import nuke
-nuke.load('denoiser')
+
+_version_file = os.path.join(_plugin_dir, 'built_for_nuke_version.txt')
+_built_for = None
+if os.path.exists(_version_file):
+    with open(_version_file) as _f:
+        _built_for = _f.read().strip()
+
+if _built_for and _built_for != str(nuke.NUKE_VERSION_MAJOR):
+    print("[Denoiser] WARNING: this build was compiled against Nuke %s but you're "
+          "running Nuke %d - skipping load to avoid a crash. Re-run install.ps1 "
+          "against this Nuke version to rebuild it." % (_built_for, nuke.NUKE_VERSION_MAJOR))
+else:
+    nuke.load('denoiser')
