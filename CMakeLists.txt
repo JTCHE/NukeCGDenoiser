@@ -21,4 +21,19 @@ function(add_plugin PLUGIN_NAME)
     target_link_libraries(${PLUGIN_NAME} PUBLIC OpenImageDenoise::OpenImageDenoise)
 endfunction()
 
-add_plugin(Denoiser src/denoiser.cpp)
+add_plugin(Denoiser
+    src/denoiser.cpp
+    src/core/aov_patterns.cpp
+    src/core/channel_io.cpp
+    src/core/oidn_device.cpp
+    src/core/temporal.cpp
+)
+target_include_directories(Denoiser PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# The temporal core has no Nuke or OIDN dependency, so its tests run standalone.
+add_executable(temporal_test EXCLUDE_FROM_ALL
+    src/test/test_temporal.cpp
+    src/core/temporal.cpp
+)
+target_include_directories(temporal_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+set_target_properties(temporal_test PROPERTIES CXX_STANDARD 17)
