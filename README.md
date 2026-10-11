@@ -112,7 +112,7 @@ Enable the alpha checkbox (A) in the **Beauty layer** knob to also denoise the a
 
 | Knob                           | Description                                                                                                                            |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Device Type                    | **CPU** (default), **CUDA**, or **Metal** (macOS only). Falls back to CPU when the GPU device is not available                         |
+| Device Type                    | **CPU** (default), **CUDA**, or **Metal** (macOS only). If the GPU is not available: CUDA → Metal → CPU (Windows: CUDA → CPU)       |
 | Quality                        | **Balanced** (default) or **High**                                                                                                     |
 | HDR                            | Enable for high-dynamic-range input (recommended)                                                                                      |
 | Enable thread affinity         | Pins OIDN threads to hardware threads for performance                                                                                  |

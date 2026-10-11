@@ -83,7 +83,7 @@ Removes the `init.py` entry and optionally deletes the plugin folder.
 
 3. **`DllMain` initialization** — Initializes `g_cs` on attach, releases the device and deletes `g_cs` on detach. Guaranteed to run before any plugin callbacks. Non-Windows: a `__attribute__((destructor))` releases the device on unload.
 
-4. **Device fallback logic** — If a GPU device (CUDA, or Metal on macOS) fails, the plugin falls back to CPU and prints a warning. "CUDA" stays in the macOS device list so Windows `.nk` scripts still load. `renderStripe()` re-inits when `g_deviceType != m_deviceType`, because `knob_changed()` does not fire in terminal mode.
+4. **Device fallback logic** — If the requested device fails, `setupDevice()` tries the other GPUs in `_gpuFallbackOrder` (macOS: Metal, then CUDA), then CPU as the last resort, and prints a warning. The knob is set to the device actually used. "CUDA" stays in the macOS device list so Windows `.nk` scripts still load. `renderStripe()` re-inits when `g_deviceType != m_deviceType`, because `knob_changed()` does not fire in terminal mode.
 
 **Per-Instance State:**
 - Device type, quality mode, threading options, memory limit, number of runs
@@ -235,7 +235,7 @@ If the plugin fails to load:
 If CUDA device fails to initialize:
 - Check driver version (`nvidia-smi` in cmd.exe)
 - Verify `OpenImageDenoise_device_cuda.dll` exists in `oidn/bin/`
-- The plugin falls back to CPU and prints `[Denoiser] CUDA unavailable — fell back to CPU`
+- The plugin falls back (macOS: Metal, then CPU; Windows: CPU) and prints `[Denoiser] CUDA unavailable — fell back to <device>`
 
 ### Thread Safety
 

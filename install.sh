@@ -162,7 +162,10 @@ DST_LIB="$DST/oidn/lib"
 mkdir -p "$DST_LIB"
 
 echo "Staging plugin into $DST..."
-cp -f "$BUILT" "$DST/denoiser.dylib"
+# Remove before copy: overwriting a dylib in place keeps its inode, and macOS then
+# rejects the new binary (cached code signature) and kills Nuke on load.
+rm -f "$DST/denoiser.dylib"
+cp "$BUILT" "$DST/denoiser.dylib"
 cp -f "$SCRIPT_DIR/init.py" "$SCRIPT_DIR/menu.py" "$DST/"
 
 NUKE_MAJOR=''

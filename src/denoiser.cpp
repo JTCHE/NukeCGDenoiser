@@ -85,6 +85,14 @@ static const OIDNDeviceType _deviceTypeValues[] = {
 #endif
 };
 
+// GPU devices to try, best first, when the requested device fails. CPU is always last.
+static const int _gpuFallbackOrder[] = {
+#ifdef __APPLE__
+	2, // Metal
+#endif
+	1, // CUDA
+};
+
 static const char *const _qualityNames[] = {
 	"Balanced",
 	"High",
@@ -200,8 +208,15 @@ void DenoiserIop::setupDevice(int deviceType, int numThreads, bool affinity)
 	if (g_deviceReady)
 		return;
 
-	int tryType = deviceType;
-	for (int attempt = 0; attempt < 2; attempt++)
+	// Requested device first, then the other GPUs, then CPU as the last resort.
+	std::vector<int> order = {deviceType};
+	for (int gpu : _gpuFallbackOrder)
+		if (gpu != deviceType)
+			order.push_back(gpu);
+	if (deviceType != 0)
+		order.push_back(0);
+
+	for (int tryType : order)
 	{
 		try
 		{
@@ -227,23 +242,17 @@ void DenoiserIop::setupDevice(int deviceType, int numThreads, bool affinity)
 			g_deviceReady = true;
 
 			if (tryType != deviceType)
-				std::cerr << "[Denoiser] " << _deviceTypeNames[deviceType] << " unavailable — fell back to CPU" << std::endl;
+				std::cerr << "[Denoiser] " << _deviceTypeNames[deviceType] << " unavailable — fell back to "
+						  << _deviceTypeNames[tryType] << std::endl;
 			else
-				std::cerr << "[Denoiser] OIDN device ready (type=" << tryType << ")" << std::endl;
+				std::cerr << "[Denoiser] OIDN device ready (" << _deviceTypeNames[tryType] << ")" << std::endl;
 			return;
 		}
 		catch (const std::exception &e)
 		{
 			g_device = nullptr;
 			g_deviceReady = false;
-			std::cerr << "[Denoiser] Device init failed (type=" << tryType << "): " << e.what() << std::endl;
-
-			// If a non-CPU device failed, retry with CPU
-			if (tryType != 0)
-			{
-				tryType = 0;
-				continue;
-			}
+			std::cerr << "[Denoiser] Device init failed (" << _deviceTypeNames[tryType] << "): " << e.what() << std::endl;
 		}
 	}
 }
@@ -256,6 +265,9 @@ void DenoiserIop::knobs(Knob_Callback f)
 			"CUDA: NVIDIA GPU via CUDA (requires CUDA-capable GPU and drivers)"
 #ifdef __APPLE__
 			"\nMetal: Apple GPU via Metal (Apple Silicon)"
+			"\nIf the selected GPU is not available: CUDA → Metal → CPU"
+#else
+			"\nIf CUDA is not available, CPU is used"
 #endif
 			);
 
@@ -499,14 +511,14 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 		// cancelled run — otherwise Cancelled leaks into this fresh evaluation.
 		const char *staleMsg;
 		g_device.getError(staleMsg);
-		// If device fell back to CPU, update the knob so the UI reflects reality
+		// If device fell back, update the knob so the UI reflects reality
 		if (g_deviceType != m_deviceType)
 		{
 			const char *requested = _deviceTypeNames[m_deviceType];
 			knob("device")->set_value(g_deviceType);
-			knob("affinity")->enable(true);
-			knob("maxmem")->enable(true);
-			warning("[Denoiser] %s unavailable — fell back to CPU", requested);
+			knob("affinity")->enable(g_deviceType == 0);
+			knob("maxmem")->enable(g_deviceType == 0);
+			warning("[Denoiser] %s unavailable — fell back to %s", requested, _deviceTypeNames[g_deviceType]);
 		}
 	}
 
