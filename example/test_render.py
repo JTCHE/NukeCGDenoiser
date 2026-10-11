@@ -1,6 +1,7 @@
 """
 Terminal-mode test: loads example.nk, renders Denoiser output to test_out.jpg.
 Run: "C:/Program Files/Nuke16.0v8/Nuke16.0.exe" -i -t test_render.py
+     "/Applications/Nuke17.1v2/Nuke17.1v2.app/Contents/MacOS/Nuke17.1" -i -t test_render.py
 """
 import os, sys
 

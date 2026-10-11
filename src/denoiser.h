@@ -9,11 +9,17 @@
 
 #include <OpenImageDenoise/oidn.hpp>
 
-// Use Windows CRITICAL_SECTION directly — initialized in DllMain, not via CRT static init.
+// Use a native OS lock instead of std::mutex, which needs a global constructor.
+// On Windows: CRITICAL_SECTION, initialized in DllMain, not via CRT static init.
 // This avoids the CRT static-init ordering problem where std::mutex global constructors
 // may not have run by the time Nuke calls into the DLL.
+// Elsewhere: pthread_mutex_t with a static initializer (constant init, no constructor).
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <pthread.h>
+#endif
 
 static const char *const HELP = "CG render denoiser based on Intel's Open Image Denoise library";
 static const char *const CLASS = "Denoiser";

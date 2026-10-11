@@ -10,9 +10,10 @@ Forked from [mateuszwojt/NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDe
 
 ## Requirements
 
-- **Windows 10/11 x64** (this fork is Windows-only)
-- **Nuke 16** (tested on 16.0v8; other recent versions likely work)
-- **CUDA** drivers for Nvidia GPUs (**Optional**, defaults to CPU denoising)
+- **Windows 10/11 x64** or **macOS** (Apple Silicon or Intel)
+- **Nuke 16+** (tested on 16.0v8 on Windows, 17.1v2 on macOS arm64)
+- **CUDA** drivers for Nvidia GPUs on Windows (**Optional**, defaults to CPU denoising)
+- macOS: **Xcode Command Line Tools** and **CMake** (`brew install cmake`)
 
 ---
 
@@ -31,7 +32,18 @@ cd NukeCGDenoiser
 install.bat
 ```
 
-### Option B — Double-click
+### macOS
+
+```
+git clone https://github.com/JTCHE/NukeCGDenoiser
+cd NukeCGDenoiser
+./install.sh
+```
+
+Pass `--nuke-path /Applications/Nuke17.1v2/Nuke17.1v2.app` to skip the Nuke picker. On macOS the
+installer uses OIDN 2.3.3 (2.1.0 has no arm64 build) and adds a **Metal** device for Apple GPUs.
+
+### Option B — Double-click (Windows)
 
 1. Clone this repository
 2. Double-click `install.bat`
@@ -100,7 +112,7 @@ Enable the alpha checkbox (A) in the **Beauty layer** knob to also denoise the a
 
 | Knob                           | Description                                                                                                                            |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Device Type                    | **CPU** (default) or **CUDA**                                                                                                          |
+| Device Type                    | **CPU** (default), **CUDA**, or **Metal** (macOS only). Falls back to CPU when the GPU device is not available                         |
 | Quality                        | **Balanced** (default) or **High**                                                                                                     |
 | HDR                            | Enable for high-dynamic-range input (recommended)                                                                                      |
 | Enable thread affinity         | Pins OIDN threads to hardware threads for performance                                                                                  |
@@ -156,7 +168,7 @@ OIDN 2.4.x ships with `tbb12.dll` v2022.3, which conflicts with Nuke's own `tbb.
 ## Known limitations
 
 - **CUDA denoising is experimental.** Requires an NVIDIA GPU and driver 522.06+. Drop `OpenImageDenoise_device_cuda.dll` from the [OIDN 2.1.0 release](https://github.com/RenderKit/oidn/releases/tag/v2.1.0) into `oidn/bin/` to enable it. HIP and SYCL are not supported.
-- **Windows only.** The original plugin supports Linux and macOS; this fork's distribution system is Windows-specific. The C++ source itself is cross-platform.
+- **No Linux installer.** Windows (`install.bat`) and macOS (`install.sh`) only. The C++ source itself is cross-platform.
 - **Inputs must match resolution.** If beauty, albedo, and normal are different sizes, reformat them to match before connecting.
 
 ---

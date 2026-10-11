@@ -19,6 +19,13 @@ function(add_plugin PLUGIN_NAME)
     add_nuke_plugin(${PLUGIN_NAME} ${ARGN})
     target_compile_definitions(${PLUGIN_NAME} PRIVATE FN_PLUGIN)
     target_link_libraries(${PLUGIN_NAME} PUBLIC OpenImageDenoise::OpenImageDenoise)
+    if(APPLE)
+        # OIDN dylibs are staged next to the plugin in oidn/lib. libtbb is not
+        # staged: OIDN resolves @rpath/libtbb.12.dylib to Nuke's own copy.
+        set_target_properties(${PLUGIN_NAME} PROPERTIES
+            BUILD_WITH_INSTALL_RPATH TRUE
+            INSTALL_RPATH "@loader_path/oidn/lib")
+    endif()
 endfunction()
 
 add_plugin(Denoiser src/denoiser.cpp)

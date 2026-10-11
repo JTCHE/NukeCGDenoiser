@@ -66,15 +66,23 @@ bool findMatchingLayer(const DD::Image::ChannelSet& available,
 
 } // namespace
 
+// "CUDA" stays in the list on macOS so scripts saved on Windows still load;
+// it falls back to CPU there. Metal needs OIDN 2.2+ (macOS builds use 2.3.3).
 static const char *const _deviceTypeNames[] = {
 	"CPU",
 	"CUDA",
+#ifdef __APPLE__
+	"Metal",
+#endif
 	0};
 
 // Maps enum index → OIDN device type constant
 static const OIDNDeviceType _deviceTypeValues[] = {
 	OIDN_DEVICE_TYPE_CPU,
 	OIDN_DEVICE_TYPE_CUDA,
+#ifdef __APPLE__
+	OIDN_DEVICE_TYPE_METAL,
+#endif
 };
 
 static const char *const _qualityNames[] = {
@@ -96,11 +104,27 @@ static const oidn::Quality _qualityValues[] = {
 //
 // The device itself is also global (shared across all DenoiserIop instances) to avoid
 // per-instance construction/destruction races in a multi-threaded Nuke render context.
-static CRITICAL_SECTION g_cs;
+#ifdef _WIN32
+typedef CRITICAL_SECTION PlatformLock;
+static PlatformLock g_cs;
+static void lockAcquire(PlatformLock &l) { EnterCriticalSection(&l); }
+static void lockRelease(PlatformLock &l) { LeaveCriticalSection(&l); }
+#else
+// Recursive, to match CRITICAL_SECTION semantics.
+typedef pthread_mutex_t PlatformLock;
+#ifdef __APPLE__
+static PlatformLock g_cs = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
+#else
+static PlatformLock g_cs = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+#endif
+static void lockAcquire(PlatformLock &l) { pthread_mutex_lock(&l); }
+static void lockRelease(PlatformLock &l) { pthread_mutex_unlock(&l); }
+#endif
 static oidn::DeviceRef g_device;
 static bool g_deviceReady = false;
 static int g_deviceType = -1;
 
+#ifdef _WIN32
 // DllMain: initialize and destroy the CRITICAL_SECTION at DLL attach/detach.
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
@@ -123,6 +147,17 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 	}
 	return TRUE;
 }
+#else
+// Release device at library unload, same as DLL_PROCESS_DETACH on Windows.
+__attribute__((destructor)) static void releaseDeviceOnUnload()
+{
+	if (g_deviceReady)
+	{
+		g_device = nullptr;
+		g_deviceReady = false;
+	}
+}
+#endif
 
 DenoiserIop::DenoiserIop(Node *node) : PlanarIop(node)
 {
@@ -140,12 +175,12 @@ DenoiserIop::DenoiserIop(Node *node) : PlanarIop(node)
 	m_normalChannels = ChannelSet();
 };
 
-// RAII wrapper for CRITICAL_SECTION
+// RAII wrapper for PlatformLock
 struct CsLock
 {
-	CRITICAL_SECTION &cs;
-	CsLock(CRITICAL_SECTION &c) : cs(c) { EnterCriticalSection(&cs); }
-	~CsLock() { LeaveCriticalSection(&cs); }
+	PlatformLock &cs;
+	CsLock(PlatformLock &c) : cs(c) { lockAcquire(cs); }
+	~CsLock() { lockRelease(cs); }
 };
 
 // static
@@ -192,7 +227,7 @@ void DenoiserIop::setupDevice(int deviceType, int numThreads, bool affinity)
 			g_deviceReady = true;
 
 			if (tryType != deviceType)
-				std::cerr << "[Denoiser] CUDA unavailable — fell back to CPU" << std::endl;
+				std::cerr << "[Denoiser] " << _deviceTypeNames[deviceType] << " unavailable — fell back to CPU" << std::endl;
 			else
 				std::cerr << "[Denoiser] OIDN device ready (type=" << tryType << ")" << std::endl;
 			return;
@@ -218,7 +253,11 @@ void DenoiserIop::knobs(Knob_Callback f)
 	Enumeration_knob(f, &m_deviceType, _deviceTypeNames, "device", "Device Type");
 	Tooltip(f,
 			"CPU: regular CPU denoising backend\n"
-			"CUDA: NVIDIA GPU via CUDA (requires CUDA-capable GPU and drivers)");
+			"CUDA: NVIDIA GPU via CUDA (requires CUDA-capable GPU and drivers)"
+#ifdef __APPLE__
+			"\nMetal: Apple GPU via Metal (Apple Silicon)"
+#endif
+			);
 
 	Enumeration_knob(f, &m_quality, _qualityNames, "quality", "Quality");
 	Tooltip(f,
@@ -437,12 +476,13 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 	if (aborted() || cancelled())
 		return;
 
-	// Lazy device initialization — only on first render, or after a device type change
+	// Lazy device initialization — only on first render, or after a device type change.
+	// Check the type here too: knob_changed() does not fire in terminal mode.
 	{
 		bool ready;
 		{
 			CsLock lock(g_cs);
-			ready = g_deviceReady;
+			ready = g_deviceReady && g_deviceType == m_deviceType;
 		}
 		if (!ready)
 			setupDevice(m_deviceType, m_numThreads, m_bAffinity);
@@ -462,10 +502,11 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 		// If device fell back to CPU, update the knob so the UI reflects reality
 		if (g_deviceType != m_deviceType)
 		{
+			const char *requested = _deviceTypeNames[m_deviceType];
 			knob("device")->set_value(g_deviceType);
 			knob("affinity")->enable(true);
 			knob("maxmem")->enable(true);
-			warning("[Denoiser] CUDA unavailable — fell back to CPU");
+			warning("[Denoiser] %s unavailable — fell back to CPU", requested);
 		}
 	}
 

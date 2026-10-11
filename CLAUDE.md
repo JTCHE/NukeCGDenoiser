@@ -1,8 +1,9 @@
 ## Project Overview
 
-A build-from-source Windows-only Nuke plugin for denoising CG renders using Intel Open Image Denoise (OIDN 2.1.0). Includes:
+A build-from-source Nuke plugin for Windows and macOS for denoising CG renders using Intel Open Image Denoise (OIDN 2.1.0). Includes:
 - C++ plugin DLL (uses Nuke's DDImage SDK and OIDN C++ API)
 - `install.ps1`/`install.bat`: detects a Nuke SDK, bootstraps CMake/VS2022 Build Tools/OIDN if missing, builds the plugin, and stages it into `~/.nuke/nuke-denoiser/`
+- `install.sh`: macOS equivalent (needs Xcode CLT + CMake; fetches OIDN 2.3.3; stages `denoiser.dylib` + `oidn/lib/`)
 - Python uninstaller
 - Multi-layer EXR workflow with layer picker knobs for beauty/albedo/normal passes
 
@@ -31,6 +32,20 @@ stages only the runtime files (`denoiser.dll`, `init.py`, `menu.py`, `oidn/bin/*
 a guarded block. Idempotent — safe to re-run.
 
 After install, restart Nuke to load the plugin.
+
+### Build & Install (macOS)
+
+```bash
+./install.sh [--nuke-path /Applications/Nuke17.1v2/Nuke17.1v2.app]
+```
+
+Builds against the Nuke SDK in `Nuke*.app/Contents/MacOS`, fetches OIDN 2.3.3 into
+`build/deps/`, builds into `build/mac/`, stages `denoiser.dylib` (rpath
+`@loader_path/oidn/lib`) and `oidn/lib/libOpenImageDenoise*.dylib`. It does **not** stage
+OIDN's `libtbb` — OIDN resolves `@rpath/libtbb.12.dylib` to Nuke's own copy, so only one
+TBB runtime is in the process. Same guarded `init.py` block as Windows.
+
+Headless smoke test: `".../Nuke17.1v2.app/Contents/MacOS/Nuke17.1" -t -i example/test_render.py`
 
 ### Manual build (for contributors hacking on the source)
 
@@ -64,11 +79,11 @@ Removes the `init.py` entry and optionally deletes the plugin folder.
 
 1. **Global OIDN device** — All `DenoiserIop` instances share a single `g_device` to avoid per-instance construction/destruction races during multi-threaded Nuke renders.
 
-2. **`CRITICAL_SECTION` instead of `std::mutex`** — `std::mutex` global constructors do not reliably run when Nuke loads the DLL via `LoadLibrary`. This causes segfaults when locking an uninitialized mutex. `CRITICAL_SECTION g_cs` is initialized explicitly in `DllMain(DLL_PROCESS_ATTACH)` before any plugin code runs.
+2. **`CRITICAL_SECTION` instead of `std::mutex`** — `std::mutex` global constructors do not reliably run when Nuke loads the DLL via `LoadLibrary`. This causes segfaults when locking an uninitialized mutex. `CRITICAL_SECTION g_cs` is initialized explicitly in `DllMain(DLL_PROCESS_ATTACH)` before any plugin code runs. On macOS/Linux `g_cs` is a recursive `pthread_mutex_t` with a static initializer (no constructor); both sit behind the `PlatformLock` typedef used by `CsLock`.
 
-3. **`DllMain` initialization** — Initializes `g_cs` on attach, releases the device and deletes `g_cs` on detach. Guaranteed to run before any plugin callbacks.
+3. **`DllMain` initialization** — Initializes `g_cs` on attach, releases the device and deletes `g_cs` on detach. Guaranteed to run before any plugin callbacks. Non-Windows: a `__attribute__((destructor))` releases the device on unload.
 
-4. **Device fallback logic** — If CUDA device fails, the plugin silently falls back to CPU and prints a warning. This lets users without CUDA drivers still use the plugin.
+4. **Device fallback logic** — If a GPU device (CUDA, or Metal on macOS) fails, the plugin falls back to CPU and prints a warning. "CUDA" stays in the macOS device list so Windows `.nk` scripts still load. `renderStripe()` re-inits when `g_deviceType != m_deviceType`, because `knob_changed()` does not fire in terminal mode.
 
 **Per-Instance State:**
 - Device type, quality mode, threading options, memory limit, number of runs
@@ -94,7 +109,7 @@ Removes the `init.py` entry and optionally deletes the plugin folder.
 
 ### Distribution (`init.py`, `menu.py`, `install.ps1`, `install.bat`, `uninstall.py`)
 
-**`init.py`** — Pre-loads OIDN runtime DLLs from the staged `oidn/bin/` folder (populated by `install.ps1` at install time, not tracked in git):
+**`init.py`** — On Windows only (`sys.platform == 'win32'`), pre-loads OIDN runtime DLLs from the staged `oidn/bin/` folder (populated by `install.ps1` at install time, not tracked in git):
 - Uses `SetDllDirectoryW()` to set the DLL search path relative to the plugin location (self-contained, no hardcoded paths)
 - Loads CPU device DLLs unconditionally
 - Loads CUDA device DLL if present (`OpenImageDenoise_device_cuda.dll`)
@@ -202,7 +217,7 @@ No automated unit tests (plugin logic is tightly coupled to Nuke's DDImage API).
 ## Known Limitations
 
 - **CUDA is experimental.** Requires separate DLL and driver 522.06+. No HIP or SYCL support.
-- **Windows only.** Installer is Windows-specific (PowerShell); C++ source is cross-platform but untested on other OSes.
+- **No Linux installer.** Windows (`install.ps1`) and macOS (`install.sh`) only; C++ source should build on Linux but is untested.
 - **Inputs must match resolution.** If beauty, albedo, and normal differ in size, reformat them first.
 - **TBB version lock:** OIDN 2.1.0 uses TBB v2021.10, compatible with Nuke's v2020.3. Do not upgrade OIDN without checking TBB compatibility.
 
@@ -228,7 +243,7 @@ Global OIDN device is protected by `CRITICAL_SECTION g_cs`. All access to `g_dev
 
 ## OIDN Version and Compatibility
 
-- **Current:** OIDN 2.1.0 (uses `tbb12.dll` v2021.10)
+- **Current:** OIDN 2.1.0 on Windows (uses `tbb12.dll` v2021.10); OIDN 2.3.3 on macOS (links libtbb 2021.12, satisfied by Nuke 17's bundled 2021.13 — 2.1.0 has no arm64 macOS build). On macOS, never pick an OIDN whose TBB is newer than the `libtbb.12.*.dylib` in Nuke's `Contents/MacOS`.
 - **Why not 2.4.x:** Newer versions ship with TBB v2022.3, which conflicts with Nuke's v2020.3 and crashes on startup
 - **Why not older:** Older versions lack CUDA support or have other compatibility issues
 - **Path:** `install.ps1` auto-downloads and caches it in `build/deps/oidn-2.1.0`; for a manual build, pass `-DOIDN_ROOT` pointing at any local OIDN 2.1.0 SDK extraction
