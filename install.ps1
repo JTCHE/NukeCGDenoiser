@@ -1,7 +1,7 @@
 <#
 Nuke Denoiser - Build & Install
-Detects installed Nuke SDKs, bootstraps CMake / VS2022 Build Tools / OIDN 2.1.0 if
-missing, builds Denoiser.dll from source, and stages the plugin into
+Detects installed Nuke SDKs, bootstraps CMake / VS Build Tools (2022 or newer) /
+OIDN 2.1.0 if missing, builds Denoiser.dll from source, and stages the plugin into
 ~/.nuke/nuke-denoiser/ (or $NUKE_PATH). Idempotent: safe to run multiple times.
 #>
 param(
@@ -107,7 +107,7 @@ function Get-CMakeExe {
     return $exe.FullName
 }
 
-# --- VS2022 C++ build tools detection / bootstrap ---
+# --- VS C++ build tools detection / bootstrap (VS 2022 or newer) ---
 function Get-VsWhereExe {
     foreach ($base in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
         if (-not $base) { continue }
@@ -117,33 +117,69 @@ function Get-VsWhereExe {
     return $null
 }
 
-function Get-Vs2022Path {
+# Returns @{ Path; Major } for the newest VS (major 17 = 2022, 18 = 2026, ...) that has
+# the x64 C++ compiler, or $null. A VS install without the C++ workload is skipped.
+function Get-VsToolchain {
     $vswhere = Get-VsWhereExe
     if ($vswhere) {
-        $installPath = & $vswhere -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-        if ($installPath) { return ($installPath | Select-Object -First 1) }
+        # -products * is needed to see Build Tools installs, not only full VS editions.
+        $json = & $vswhere -version '[17.0,)' -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json
+        # Join first: Windows PowerShell 5.1 parses line-by-line input badly, and emits a
+        # JSON array as one object - assigning to a variable lets the pipe enumerate it.
+        $items = ($json -join "`n") | ConvertFrom-Json
+        $found = $items | Sort-Object { [version]$_.installationVersion } -Descending | Select-Object -First 1
+        if ($found) {
+            return @{ Path = $found.installationPath; Major = ([version]$found.installationVersion).Major }
+        }
     }
 
     # vswhere's component query depends on COM/WMI plumbing that can be unavailable
     # (e.g. minimal Windows Server Core hosts) even when the compiler installed fine.
     # Fall back to a direct filesystem check for cl.exe.
+    $best = $null
     foreach ($base in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
         if (-not $base) { continue }
-        $cl = Get-ChildItem -Path (Join-Path $base 'Microsoft Visual Studio\2022') -Recurse -Filter 'cl.exe' -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match '\\VC\\Tools\\MSVC\\.*\\bin\\Hostx64\\x64\\cl\.exe$' } |
-            Select-Object -First 1
-        if ($cl) {
-            return ($cl.FullName -replace '\\VC\\Tools\\MSVC\\.*$', '')
+        foreach ($cl in Get-ChildItem -Path (Join-Path $base 'Microsoft Visual Studio') -Recurse -Filter 'cl.exe' -ErrorAction SilentlyContinue) {
+            if ($cl.FullName -notmatch '\\Microsoft Visual Studio\\(\d+)\\[^\\]+\\VC\\Tools\\MSVC\\.*\\bin\\Hostx64\\x64\\cl\.exe$') { continue }
+            $major = if ($Matches[1] -eq '2022') { 17 } else { [int]$Matches[1] }   # folder is "2022" or "18", "19", ...
+            if ($major -lt 17 -or ($best -and $best.Major -ge $major)) { continue }
+            $best = @{ Path = ($cl.FullName -replace '\\VC\\Tools\\MSVC\\.*$', ''); Major = $major }
         }
     }
+    return $best
+}
+
+# CMake's Visual Studio generator name for a VS major version, if this CMake has it.
+# Older CMake (e.g. 3.31) has no generator for VS 2026 - the caller falls back to NMake.
+function Get-VsGenerator {
+    param([string]$CMakeExe, [int]$Major)
+    $names = @{ 17 = 'Visual Studio 17 2022'; 18 = 'Visual Studio 18 2026' }
+    $name = $names[$Major]
+    if ($name -and ((& $CMakeExe --help) -join "`n").Contains($name)) { return $name }
     return $null
+}
+
+# Loads the VS x64 compiler environment (vcvars64.bat) into this PowerShell session.
+function Import-VcVars {
+    param([string]$VsPath)
+    $vcvars = Join-Path $VsPath 'VC\Auxiliary\Build\vcvars64.bat'
+    if (-not (Test-Path $vcvars)) { throw "vcvars64.bat not found at $vcvars" }
+    # A temp .bat avoids cmd.exe quote rules for paths like "Program Files (x86)".
+    $bat = Join-Path $env:TEMP 'nuke-denoiser-vcvars.bat'
+    Set-Content -Path $bat -Value "@call `"$vcvars`" >nul`r`n@set" -Encoding ASCII
+    $envDump = & cmd.exe /c $bat
+    Remove-Item $bat -ErrorAction SilentlyContinue
+    foreach ($line in $envDump) {
+        if ($line -match '^([^=]+)=(.*)$') { Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2] }
+    }
+    if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) { throw "cl.exe not on PATH after running $vcvars" }
 }
 
 function Install-Vs2022BuildTools {
     param([switch]$Unattended)
 
     if (-not $Unattended) {
-        $choice = Show-Menu -Title 'Visual Studio 2022 C++ build tools were not found.' `
+        $choice = Show-Menu -Title 'Visual Studio C++ build tools (2022 or newer) were not found.' `
             -Options @('Download and install Visual Studio Build Tools 2022 (required to build the plugin)', 'Cancel')
         if ($choice -eq 1) { throw 'Build cancelled - VS2022 C++ build tools are required.' }
     }
@@ -158,9 +194,9 @@ function Install-Vs2022BuildTools {
     Write-Host 'Launching Visual Studio Build Tools installer...'
     Start-Process -FilePath $installerPath -ArgumentList $installArgs -Wait
 
-    $vsPath = Get-Vs2022Path
-    if (-not $vsPath) { throw 'Visual Studio 2022 C++ build tools still not detected after install.' }
-    return $vsPath
+    $vs = Get-VsToolchain
+    if (-not $vs) { throw 'Visual Studio C++ build tools still not detected after install.' }
+    return $vs
 }
 
 # --- OIDN fetch (pinned to 2.1.0 per CLAUDE.md - do not bump without checking TBB ABI) ---
@@ -231,6 +267,9 @@ function Update-InitPy {
         if (-not $inside) { $final.Add($line) }
     }
 
+    # Drop trailing blank lines, so each re-run does not add one more.
+    while ($final.Count -gt 0 -and -not $final[$final.Count - 1].Trim()) { $final.RemoveAt($final.Count - 1) }
+
     $final.Add('')
     $final.Add($BlockStart)
     $final.Add("nuke.pluginAddPath('./nuke-denoiser')")
@@ -249,24 +288,42 @@ Write-Host "Nuke SDK       : $nukeSdk"
 $cmakeExe = Get-CMakeExe
 Write-Host "CMake          : $cmakeExe"
 
-$vsPath = Get-Vs2022Path
-if (-not $vsPath) {
-    $vsPath = Install-Vs2022BuildTools -Unattended:$Unattended
+$vs = Get-VsToolchain
+if (-not $vs) {
+    $vs = Install-Vs2022BuildTools -Unattended:$Unattended
 }
-Write-Host "VS2022 Tools   : $vsPath"
+Write-Host "VS Build Tools : $($vs.Path) (v$($vs.Major))"
 
 $oidnRoot = Get-OidnRoot
 Write-Host "OIDN           : $oidnRoot"
 
-Write-Host 'Configuring...'
-& $cmakeExe -B $BuildDir -G 'Visual Studio 17 2022' -DOIDN_ROOT="$oidnRoot" -DCMAKE_PREFIX_PATH="$nukeSdk" $ScriptDir
-if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
+$generator = Get-VsGenerator -CMakeExe $cmakeExe -Major $vs.Major
+if ($generator) {
+    Write-Host "Generator      : $generator"
+    Write-Host 'Configuring...'
+    & $cmakeExe -B $BuildDir -G $generator -DCMAKE_GENERATOR_INSTANCE="$($vs.Path)" -DOIDN_ROOT="$oidnRoot" -DCMAKE_PREFIX_PATH="$nukeSdk" $ScriptDir
+    if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
 
-Write-Host 'Building...'
-& $cmakeExe --build $BuildDir --config Release
-if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+    Write-Host 'Building...'
+    & $cmakeExe --build $BuildDir --config Release
+    if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+    $builtDll = Join-Path $BuildDir 'lib\Release\Denoiser.dll'
+} else {
+    # This CMake has no generator for this VS version: build with NMake in the VS env.
+    # Separate build dir, because CMake refuses to switch generators in one dir.
+    $nmakeDir = Join-Path $BuildDir 'nmake'
+    Write-Host 'Generator      : NMake Makefiles (no Visual Studio generator for this VS in this CMake)'
+    Import-VcVars -VsPath $vs.Path
+    Write-Host 'Configuring...'
+    & $cmakeExe -B $nmakeDir -G 'NMake Makefiles' -DCMAKE_BUILD_TYPE=Release -DOIDN_ROOT="$oidnRoot" -DCMAKE_PREFIX_PATH="$nukeSdk" $ScriptDir
+    if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
 
-$builtDll = Join-Path $BuildDir 'lib\Release\Denoiser.dll'
+    Write-Host 'Building...'
+    & $cmakeExe --build $nmakeDir
+    if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+    $builtDll = Join-Path $nmakeDir 'lib\Denoiser.dll'
+}
+
 if (-not (Test-Path $builtDll)) { throw "Build succeeded but Denoiser.dll not found at $builtDll" }
 
 $nukeUserDir = Find-NukeUserDir

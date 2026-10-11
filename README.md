@@ -125,7 +125,7 @@ Enable the alpha checkbox (A) in the **Beauty layer** knob to also denoise the a
 
 ## Building from source
 
-Requires [Visual Studio 2022](https://visualstudio.microsoft.com/) and [CMake 3.10+](https://cmake.org/). **MinGW/GCC cannot be used** — Nuke ships MSVC import libraries (`.lib` files) and GCC cannot link against them.
+Requires [Visual Studio 2022 or newer](https://visualstudio.microsoft.com/) (the C++ build tools) and [CMake 3.10+](https://cmake.org/). **MinGW/GCC cannot be used** — Nuke ships MSVC import libraries (`.lib` files) and GCC cannot link against them.
 
 ```bat
 cd nuke-denoiser

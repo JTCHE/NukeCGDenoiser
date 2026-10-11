@@ -2,7 +2,7 @@
 
 A build-from-source Nuke plugin for Windows and macOS for denoising CG renders using Intel Open Image Denoise (OIDN 2.1.0). Includes:
 - C++ plugin DLL (uses Nuke's DDImage SDK and OIDN C++ API)
-- `install.ps1`/`install.bat`: detects a Nuke SDK, bootstraps CMake/VS2022 Build Tools/OIDN if missing, builds the plugin, and stages it into `~/.nuke/nuke-denoiser/`
+- `install.ps1`/`install.bat`: detects a Nuke SDK, bootstraps CMake/VS Build Tools (2022+)/OIDN if missing, builds the plugin, and stages it into `~/.nuke/nuke-denoiser/`
 - `install.sh`: macOS equivalent (needs Xcode CLT + CMake; fetches OIDN 2.3.3; stages `denoiser.dylib` + `oidn/lib/`)
 - Python uninstaller
 - Multi-layer EXR workflow with layer picker knobs for beauty/albedo/normal passes
@@ -25,11 +25,17 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 This detects installed Nuke SDKs (prompting to pick one if more than one is found; pass
 `-NukePath "C:\Program Files\NukeX.Yvz"` to skip the prompt), downloads/caches CMake and
-OIDN 2.1.0 if not already present, bootstraps VS2022 C++ Build Tools if missing (prompts
-before downloading — pass `-Unattended` for a silent install), builds `Denoiser.dll`, and
+OIDN 2.1.0 if not already present, uses the newest VS 2022+ install that has the C++ tools
+(Build Tools included; bootstraps VS2022 Build Tools if none — prompts before downloading,
+pass `-Unattended` for a silent install), builds `Denoiser.dll`, and
 stages only the runtime files (`denoiser.dll`, `init.py`, `menu.py`, `oidn/bin/*.dll`) into
 `~/.nuke/nuke-denoiser/` (respects `NUKE_PATH` like before). Patches `~/.nuke/init.py` with
 a guarded block. Idempotent — safe to re-run.
+
+Generator: the matching Visual Studio generator if the CMake in use has it (`Visual Studio
+17 2022`, `Visual Studio 18 2026`). Otherwise (e.g. VS 2026 with CMake < 4.2) it loads
+`vcvars64.bat` and builds with `NMake Makefiles` in `build/nmake/` — tested with MSVC 14.50
+against Nuke 17.0v3. Note `cmake` on PATH may be Strawberry Perl's older copy.
 
 After install, restart Nuke to load the plugin.
 
@@ -49,14 +55,14 @@ Headless smoke test: `".../Nuke17.1v2.app/Contents/MacOS/Nuke17.1" -t -i example
 
 ### Manual build (for contributors hacking on the source)
 
-**Requires:** Visual Studio 2022 (not MinGW), CMake 3.10+, OIDN 2.1.0 SDK
+**Requires:** Visual Studio 2022 or newer (not MinGW), CMake 3.10+, OIDN 2.1.0 SDK
 
 ```bash
 cmake -B build -G "Visual Studio 17 2022" -DOIDN_ROOT="c:/bin/oidn-2.1.0" -DCMAKE_PREFIX_PATH="C:/Program Files/NukeX.Yvz"
 cmake --build build --config Release
 ```
 
-**Important:** Only Visual Studio 2022 generator works. MinGW/GCC cannot link MSVC `.lib` import libraries that Nuke ships with.
+**Important:** Use MSVC (a Visual Studio generator, or NMake from a `vcvars64` shell). MinGW/GCC cannot link MSVC `.lib` import libraries that Nuke ships with.
 
 **OIDN 2.1.0 is mandatory.** Do not use OIDN 2.4.x — it ships with TBB v2022.3, which conflicts with Nuke's v2020.3 and causes immediate crashes.
 
@@ -117,7 +123,7 @@ Removes the `init.py` entry and optionally deletes the plugin folder.
 
 **`menu.py`** — Adds "MW/Denoiser" menu entry (GUI only).
 
-**`install.ps1`** (invoked via `install.bat`) — Detects/bootstraps CMake, VS2022 Build Tools,
+**`install.ps1`** (invoked via `install.bat`) — Detects/bootstraps CMake, VS Build Tools (2022+),
 and OIDN 2.1.0; builds `Denoiser.dll` against a detected/selected Nuke SDK; stages the
 runtime-only file set into `~/.nuke/nuke-denoiser/`; patches `~/.nuke/init.py` with a
 guarded block (`# --- nuke-denoiser START/END ---`). Handles cleanup of old denoiser
@@ -129,7 +135,7 @@ entries. Idempotent.
 
 ```
 NukeCGDenoiser/
-├── CMakeLists.txt                 # Build config (Visual Studio 2022, links OIDN)
+├── CMakeLists.txt                 # Build config (MSVC on Windows, clang on macOS; links OIDN)
 ├── cmake/Modules/
 │   └── FindOpenImageDenoise.cmake  # Custom CMake module for OIDN discovery
 ├── src/
