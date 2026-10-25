@@ -535,38 +535,32 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 
 	// Per-render local buffers and filter, so concurrent Denoiser nodes do not
 	// share anything but the device itself.
+	//
+	// The OIDN buffers are device-only and the host never touches them: pixels are
+	// staged in host vectors and moved with write()/read(). Default newBuffer()
+	// storage on CUDA is managed memory, and on Windows the CPU may not touch managed
+	// memory while any kernel runs on the GPU — another Denoiser's execute() is
+	// enough — so getData() pointers crashed with 0xC0000006 under concurrent
+	// renders. Device storage is also about 6x faster than managed or pinned host.
+	const size_t numFloats = (size_t)width * height * 3;
+	std::vector<float> colorHost(numFloats, 0.f), outputHost(numFloats, 0.f);
+	std::vector<float> albedoHost(useAlbedo ? numFloats : 0, 0.f);
+	std::vector<float> normalHost(useNormal ? numFloats : 0, 0.f);
 	oidn::BufferRef colorBuffer, albedoBuffer, normalBuffer, outputBuffer;
 	oidn::FilterRef filter;
 	{
 		device::Lock lock;
-		colorBuffer = device::ref().newBuffer(bufferSize);
-		outputBuffer = device::ref().newBuffer(bufferSize);
+		colorBuffer = device::ref().newBuffer(bufferSize, oidn::Storage::Device);
+		outputBuffer = device::ref().newBuffer(bufferSize, oidn::Storage::Device);
 		if (useAlbedo)
-			albedoBuffer = device::ref().newBuffer(bufferSize);
+			albedoBuffer = device::ref().newBuffer(bufferSize, oidn::Storage::Device);
 		if (useNormal)
-			normalBuffer = device::ref().newBuffer(bufferSize);
+			normalBuffer = device::ref().newBuffer(bufferSize, oidn::Storage::Device);
 		filter = device::ref().newFilter("RT");
 	}
 
-	float *colorPtr = static_cast<float *>(colorBuffer.getData());
-	float *outputPtr = static_cast<float *>(outputBuffer.getData());
-	if (!colorPtr || !outputPtr)
-	{
-		error("[Denoiser] Buffer data is nullptr");
-		return;
-	}
-	memset(colorPtr, 0, bufferSize);
-	memset(outputPtr, 0, bufferSize);
-	if (useAlbedo)
-	{
-		if (float *p = static_cast<float *>(albedoBuffer.getData()))
-			memset(p, 0, bufferSize);
-	}
-	if (useNormal)
-	{
-		if (float *p = static_cast<float *>(normalBuffer.getData()))
-			memset(p, 0, bufferSize);
-	}
+	float *colorPtr = colorHost.data();
+	float *outputPtr = outputHost.data();
 
 	filter.setImage("color", colorBuffer, oidn::Format::Float3, width, height);
 	filter.setImage("output", outputBuffer, oidn::Format::Float3, width, height);
@@ -614,7 +608,7 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 
 	if (useAlbedo)
 	{
-		float *albedoPtr = static_cast<float *>(albedoBuffer.getData());
+		float *albedoPtr = albedoHost.data();
 		if (hasAlbedoInput)
 			fetchInterleaved(input(1), Mask_RGB, imageFormat, albedoPtr, 3, width, height);
 		else
@@ -626,7 +620,7 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 
 	if (useNormal)
 	{
-		float *normalPtr = static_cast<float *>(normalBuffer.getData());
+		float *normalPtr = normalHost.data();
 		if (hasNormalInput)
 			fetchInterleaved(input(2), Mask_RGB, imageFormat, normalPtr, 3, width, height);
 		else
@@ -638,12 +632,19 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 
 	try
 	{
+		colorBuffer.write(0, bufferSize, colorPtr);
+		if (useAlbedo)
+			albedoBuffer.write(0, bufferSize, albedoHost.data());
+		if (useNormal)
+			normalBuffer.write(0, bufferSize, normalHost.data());
+
 		for (int run = 0; run < m_numRuns; run++)
 		{
 			if (aborted() || cancelled())
 				return;
 			filter.execute();
 		}
+		outputBuffer.read(0, bufferSize, outputPtr);
 
 		device::Lock lock;
 		const char *errorMessage = nullptr;
@@ -786,12 +787,14 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 
 		try
 		{
+			colorBuffer.write(0, bufferSize, alphaInPtr);
 			for (int run = 0; run < m_numRuns; run++)
 			{
 				if (aborted() || cancelled())
 					return;
 				alphaFilter.execute();
 			}
+			outputBuffer.read(0, bufferSize, alphaOutPtr);
 		}
 		catch (const std::exception &e)
 		{

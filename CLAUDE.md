@@ -177,7 +177,12 @@ validate is not supported".
 
 ## Known limitations
 
-- **CUDA is experimental.** Driver 522.06+ required. No HIP or SYCL.
+- **CUDA needs driver 522.06+.** No HIP or SYCL.
+- **OIDN buffers are device-only; never call `getData()` on them.** Default
+  `newBuffer()` storage on CUDA is managed memory, and on Windows the CPU may not touch
+  managed memory while any kernel runs on the GPU. With several Denoisers rendering at
+  once that crashed with 0xC0000006 (it was the "CUDA is unstable" reputation), and it
+  ran 6-7x slower. Stage pixels in host vectors and move them with `write()`/`read()`.
 - **Windows only.** `DllMain`, `CRITICAL_SECTION`, `SetDllDirectoryW` are Win32. Linux
   would need `pthread_mutex_t` / `dlopen` equivalents.
 - **Inputs must match resolution.** Reformat beauty/albedo/normal to match first.
