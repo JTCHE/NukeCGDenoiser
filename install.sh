@@ -80,6 +80,11 @@ check_tools() {
         xcode-select --install || true
         die 'Xcode Command Line Tools are required. Finish their install, then re-run this script.'
     }
+    # A full Xcode whose licence is not accepted blocks every compiler call. The Command
+    # Line Tools need no licence, so build with them when they are there.
+    if ! xcrun clang --version >/dev/null 2>&1 && [[ -x /Library/Developer/CommandLineTools/usr/bin/clang ]]; then
+        export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+    fi
     command -v cmake >/dev/null 2>&1 || die 'CMake not found. Install it (e.g. "brew install cmake"), then re-run.'
 }
 
