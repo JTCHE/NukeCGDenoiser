@@ -1,16 +1,17 @@
 """
 Nuke Denoiser — Uninstaller
 Removes the guarded block from ~/.nuke/init.py and optionally sends the plugin folder
-to the Recycle Bin (recoverable).
+to the Recycle Bin / Trash (recoverable).
 """
 import os
 import sys
-import ctypes
-import ctypes.wintypes
+import shutil
+import time
 
 PLUGIN_FOLDER = 'nuke-denoiser'
 BLOCK_START   = '# --- nuke-denoiser START ---'
 BLOCK_END     = '# --- nuke-denoiser END ---'
+BIN_NAME      = 'Recycle Bin' if sys.platform == 'win32' else 'Trash'
 
 
 def find_nuke_dir():
@@ -53,7 +54,18 @@ def remove_block(init_py_path):
 
 
 def recycle(path):
-    """Send a file or folder to the Windows Recycle Bin (recoverable)."""
+    """Send a file or folder to the Recycle Bin / Trash (recoverable)."""
+    if sys.platform != 'win32':
+        trash = os.path.join(os.path.expanduser('~'), '.Trash')
+        dst = os.path.join(trash, os.path.basename(path))
+        if os.path.exists(dst):
+            dst += time.strftime(' %Y-%m-%d %H.%M.%S')
+        shutil.move(path, dst)
+        return
+
+    import ctypes
+    import ctypes.wintypes
+
     class SHFILEOPSTRUCTW(ctypes.Structure):
         _fields_ = [
             ('hwnd',                    ctypes.wintypes.HWND),
@@ -92,10 +104,10 @@ def main():
 
     print()
     if os.path.isdir(plugin_dir):
-        answer = input(f"Send plugin folder to Recycle Bin? '{plugin_dir}' [y/N] ").strip().lower()
+        answer = input(f"Send plugin folder to {BIN_NAME}? '{plugin_dir}' [y/N] ").strip().lower()
         if answer == 'y':
             recycle(plugin_dir)
-            print(f"  Sent to Recycle Bin: {plugin_dir}")
+            print(f"  Sent to {BIN_NAME}: {plugin_dir}")
         else:
             print("  Kept plugin folder. (init.py patch was still removed — Nuke will no longer load the plugin.)")
     else:

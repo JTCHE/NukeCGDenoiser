@@ -8,8 +8,10 @@
 #include "core/oidn_device.h"
 #include "core/temporal.h"
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#endif
 
 #include <algorithm>
 #include <iostream>
@@ -19,9 +21,14 @@
 
 using namespace denoiser;
 
+// "CUDA" stays in the list on macOS so scripts saved on Windows still load;
+// it falls back there. Metal needs OIDN 2.2+ (macOS builds use 2.3.3).
 static const char *const _deviceTypeNames[] = {
 	"CPU",
 	"CUDA",
+#ifdef __APPLE__
+	"Metal",
+#endif
 	0};
 
 static const char *const _qualityNames[] = {
@@ -34,8 +41,8 @@ static const oidn::Quality _qualityValues[] = {
 	oidn::Quality::High,
 };
 static constexpr int kNumQualities = (int)(sizeof(_qualityValues) / sizeof(_qualityValues[0]));
-static constexpr int kNumDeviceTypes = 2;
 
+#ifdef _WIN32
 // DllMain: bring the device lock up before any plugin callback can run.
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
@@ -52,6 +59,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 	}
 	return TRUE;
 }
+#endif
 
 DenoiserIop::DenoiserIop(Node *node) : PlanarIop(node)
 {
@@ -203,7 +211,14 @@ void DenoiserIop::knobs(Knob_Callback f)
 	Enumeration_knob(f, &m_deviceType, _deviceTypeNames, "device", "Device Type");
 	Tooltip(f,
 			"CPU: regular CPU denoising backend\n"
-			"CUDA: NVIDIA GPU via CUDA (requires CUDA-capable GPU and drivers)");
+			"CUDA: NVIDIA GPU via CUDA (requires CUDA-capable GPU and drivers)"
+#ifdef __APPLE__
+			"\nMetal: Apple GPU via Metal (Apple Silicon)"
+			"\nIf the selected GPU is not available: CUDA → Metal → CPU"
+#else
+			"\nIf CUDA is not available, CPU is used"
+#endif
+			);
 
 	Enumeration_knob(f, &m_quality, _qualityNames, "quality", "Quality");
 	Tooltip(f,
@@ -388,7 +403,7 @@ void DenoiserIop::_validate(bool for_real)
 	m_temporalRadius = std::clamp(m_temporalRadius, kMinTemporalRadius, kMaxTemporalRadius);
 	m_temporalStrength = std::clamp(m_temporalStrength, 0.f, 1.f);
 	m_quality = std::clamp(m_quality, 0, kNumQualities - 1);
-	m_deviceType = std::clamp(m_deviceType, 0, kNumDeviceTypes - 1);
+	m_deviceType = std::clamp(m_deviceType, 0, device::count() - 1);
 
 	// The temporal knobs only mean anything once there is a motion layer to warp with.
 	const bool temporalUsable = temporalActive();
@@ -517,9 +532,11 @@ void DenoiserIop::renderStripe(ImagePlane &plane)
 		if (device::activeType() != m_deviceType)
 		{
 			knob("device")->set_value(device::activeType());
-			knob("affinity")->enable(true);
-			knob("maxmem")->enable(true);
-			warning("[Denoiser] Requested device unavailable — fell back to CPU");
+			const int active = device::activeType();
+			knob("affinity")->enable(active == 0);
+			knob("maxmem")->enable(active == 0);
+			warning("[Denoiser] %s unavailable — fell back to %s",
+					device::name(m_deviceType), device::name(active));
 		}
 	}
 

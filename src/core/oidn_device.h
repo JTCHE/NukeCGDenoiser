@@ -16,6 +16,8 @@ namespace device {
 // std::mutex because std::mutex global constructors do not reliably run when
 // Nuke loads the DLL via LoadLibrary — locking an uninitialised one segfaults.
 // DllMain is guaranteed to run before any plugin callback.
+// Elsewhere: a recursive pthread_mutex_t with a static initializer, so initLock()
+// does nothing and a library destructor releases the device.
 void initLock();
 void destroyLock();
 
@@ -28,9 +30,14 @@ struct Lock
 	Lock& operator=(const Lock&) = delete;
 };
 
+// Device type names, indexed like the "device" knob: CPU, CUDA, Metal (macOS only).
+const char* name(int deviceType);
+// The number of device types on this platform.
+int count();
+
 // Creates the device if needed, tearing down and recreating it when the
-// requested type differs from the live one. Falls back to CPU if a GPU device
-// fails to initialise. Returns true when a device is ready to use.
+// requested type differs from the live one. If it fails, tries the other GPUs
+// (macOS: Metal, then CUDA), then CPU. Returns true when a device is ready to use.
 // Takes the lock internally — do not call while holding one.
 bool ensure(int deviceType, int numThreads, bool affinity);
 

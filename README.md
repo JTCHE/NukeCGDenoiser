@@ -6,15 +6,18 @@
 
 ## Requirements
 
-- **Windows 10/11 x64** (this fork is Windows-only)
-- **Nuke 16** (tested on 16.0v8; other recent versions likely work)
-- **CUDA** drivers for Nvidia GPUs (**Optional**, defaults to CPU denoising)
+- **Windows 10/11 x64** or **macOS** (Apple Silicon or Intel)
+- **Nuke 16+** (tested on 16.0v8 on Windows, 17.1v2 on macOS arm64)
+- **CUDA** drivers for Nvidia GPUs on Windows (**Optional**, defaults to CPU denoising)
+- macOS: **Xcode Command Line Tools** and **CMake** (`brew install cmake`)
 
 ---
 
 ## Install
 
-Close Nuke first.
+Close Nuke first. The installer builds the plugin against your Nuke, copies it to
+`~/.nuke/nuke-denoiser/`, adds a `pluginAddPath` entry to `~/.nuke/init.py` and removes
+entries from older installs. It is safe to run again. Restart Nuke when it is done.
 
 ### Windows
 
@@ -24,15 +27,8 @@ In PowerShell:
 irm https://raw.githubusercontent.com/JTCHE/NukeCGDenoiser/main/install.ps1 | iex
 ```
 
-Then restart Nuke.
-
-The installer:
-
-- Downloads the source and finds your Nuke installs; pick one from the menu
-- Fetches CMake, the VS2022 Build Tools and OIDN 2.1.0 if missing (first run: 10-20 min)
-- Builds the plugin and copies it to `~/.nuke/nuke-denoiser/`
-- Adds a `pluginAddPath` entry to `~/.nuke/init.py` and removes entries from older installs
-- Is safe to run again
+Pick a Nuke from the menu. The first run fetches CMake, the VS Build Tools and OIDN 2.1.0
+if missing (10-20 min).
 
 <details>
 <summary>Manual</summary>
@@ -47,7 +43,7 @@ install.bat -NukePath "C:\Program Files\Nuke16.0v8" -Unattended
 
 `-NukePath` skips the Nuke picker. `-Unattended` installs the Build Tools without a prompt.
 
-Or build by hand with [Visual Studio 2022](https://visualstudio.microsoft.com/) and
+Or build by hand with [Visual Studio 2022 or newer](https://visualstudio.microsoft.com/) and
 [CMake 3.10+](https://cmake.org/). **MinGW/GCC does not work**: Nuke ships MSVC import
 libraries that GCC cannot link.
 
@@ -62,13 +58,38 @@ Set `OIDN_ROOT` to the extracted [OIDN 2.1.0 release](https://github.com/RenderK
 
 </details>
 
+### macOS
+
+Needs the Xcode Command Line Tools and CMake (`brew install cmake`). In Terminal:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/JTCHE/NukeCGDenoiser/main/install.sh)"
+```
+
+Uses OIDN 2.3.3 (2.1.0 has no arm64 build) and adds a **Metal** device for Apple GPUs.
+
+<details>
+<summary>Manual</summary>
+
+```bash
+git clone https://github.com/JTCHE/NukeCGDenoiser
+cd NukeCGDenoiser
+./install.sh --nuke-path /Applications/Nuke17.1v2/Nuke17.1v2.app
+```
+
+`--nuke-path` skips the Nuke picker.
+
+</details>
+
 ### Uninstall
+
+From a clone:
 
 ```
 python uninstall.py
 ```
 
-Removes the `init.py` entry and optionally sends the plugin folder to the Recycle Bin.
+Removes the `init.py` entry and optionally deletes the plugin folder.
 
 ---
 
@@ -109,7 +130,7 @@ Enable the alpha checkbox (A) in the **Beauty layer** knob to also denoise the a
 
 | Knob                           | Description                                                                                                                            |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Device Type                    | **CPU** (default) or **CUDA**                                                                                                          |
+| Device Type                    | **CPU** (default), **CUDA**, or **Metal** (macOS only). If the GPU is not available: CUDA → Metal → CPU (Windows: CUDA → CPU)       |
 | Quality                        | **Balanced** (default) or **High**                                                                                                     |
 | HDR                            | Enable for high-dynamic-range input (recommended)                                                                                      |
 | Enable thread affinity         | Pins OIDN threads to hardware threads for performance                                                                                  |
@@ -146,7 +167,7 @@ OIDN 2.4.x ships with `tbb12.dll` v2022.3, which conflicts with Nuke's own `tbb.
 ## Known limitations
 
 - **CUDA denoising is experimental.** Requires an NVIDIA GPU and driver 522.06+. Drop `OpenImageDenoise_device_cuda.dll` from the [OIDN 2.1.0 release](https://github.com/RenderKit/oidn/releases/tag/v2.1.0) into `oidn/bin/` to enable it. HIP and SYCL are not supported.
-- **Windows only.** The original plugin supports Linux and macOS; this fork's distribution system is Windows-specific. The C++ source itself is cross-platform.
+- **No Linux installer.** Windows (`install.bat`) and macOS (`install.sh`) only. The C++ source itself is cross-platform.
 - **Inputs must match resolution.** If beauty, albedo, and normal are different sizes, reformat them to match before connecting.
 
 ---

@@ -1,7 +1,8 @@
 # NukeCGDenoiser
 
-Windows-only Nuke plugin. Spatial + temporal CG denoising via Intel Open Image Denoise
-(OIDN 2.1.0), built from source against whatever Nuke SDK is installed.
+Nuke plugin for Windows and macOS. Spatial + temporal CG denoising via Intel Open Image
+Denoise (OIDN 2.1.0 on Windows, 2.3.3 on macOS), built from source against whatever Nuke SDK
+is installed.
 
 ## Build and install
 
@@ -16,6 +17,15 @@ to fetch Build Tools; ~1 min after that.
 
 Pass `-NukePath "C:\Program Files\NukeX.Yvz"` to skip the SDK picker, `-Unattended` to
 install Build Tools without prompting.
+
+On macOS: `./install.sh [--nuke-path /Applications/Nuke17.1v2/Nuke17.1v2.app]`. It needs the
+Xcode Command Line Tools and CMake, fetches OIDN 2.3.3 (2.1.0 has no arm64 build) and stages
+`denoiser.dylib` plus `oidn/lib/`. It does not stage OIDN's `libtbb`: OIDN resolves
+`@rpath/libtbb.12.dylib` to Nuke's own copy. Never pick an OIDN whose TBB is newer than the
+`libtbb.12.*.dylib` in Nuke's `Contents/MacOS`.
+
+Both installers also run from the web (`irm ... | iex`, `bash -c "$(curl ...)"`): with no repo
+next to the script, they download `main` into the temp folder and run that copy.
 
 ### Iterating on C++ (the fast loop, ~30 s)
 
@@ -54,7 +64,7 @@ orchestration of `renderStripe`. Everything else has exactly one owner:
 | `src/core/aov_patterns.*` | Renderer AOV name heuristics |
 | `src/core/channel_io.*` | Channel ↔ buffer transfer, and the channel-ordering rule |
 | `src/core/temporal.*` | Temporal accumulation. Pure — no DDImage, OIDN or Win32 |
-| `src/core/oidn_device.*` | The shared OIDN device and its lock |
+| `src/core/oidn_device.*` | The shared OIDN device, its lock, and the device fallback order |
 | `src/test/test_temporal.cpp` | Standalone assertions over `core/temporal` |
 
 Rules when adding code:
@@ -173,7 +183,9 @@ AOV names, only while a knob is still untouched. Dispatched from `knob_changed()
 values from `_validate()` was tried and rejected; Nuke logs "Setting knob values from
 validate is not supported".
 
-**Device fallback:** GPU init failure falls back to CPU, updates the knob, and warns.
+**Device fallback:** if the requested device fails, `device::ensure()` tries the other GPUs
+(macOS: Metal, then CUDA), then CPU; the knob is set to the device in use, with a warning.
+"CUDA" stays in the macOS device list so scripts saved on Windows still load.
 
 ## Known limitations
 
@@ -183,8 +195,8 @@ validate is not supported".
   managed memory while any kernel runs on the GPU. With several Denoisers rendering at
   once that crashed with 0xC0000006 (it was the "CUDA is unstable" reputation), and it
   ran 6-7x slower. Stage pixels in host vectors and move them with `write()`/`read()`.
-- **Windows only.** `DllMain`, `CRITICAL_SECTION`, `SetDllDirectoryW` are Win32. Linux
-  would need `pthread_mutex_t` / `dlopen` equivalents.
+- **No Linux installer.** The lock has a pthread path (recursive mutex, static
+  initializer) used on macOS; Linux builds are untested.
 - **Inputs must match resolution.** Reformat beauty/albedo/normal to match first.
 - **Temporal costs 2N+1 full-res fetches per frame.** Radius 3 is 7×. Compounds with the
   lack of tiling — peak memory scales with the window.
