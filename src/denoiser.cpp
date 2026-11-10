@@ -14,6 +14,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <set>
 #include <string>
@@ -200,6 +201,15 @@ Op *DenoiserIop::neighbourInput(int offset) const
 	if (offset < 0 || offset >= availableSplits())
 		return nullptr;
 	return input(0, offset);
+}
+
+bool DenoiserIop::neighbourInSequence(int delta) const
+{
+	Iop *source = dynamic_cast<Iop *>(input(0));
+	if (!source)
+		return false;
+	const int frame = (int)std::floor(outputContext().frame()) + delta;
+	return frame >= source->info().first_frame() && frame <= source->info().last_frame();
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +446,8 @@ void DenoiserIop::getRequests(const Box &box, const ChannelSet &channels, int co
 	// its own request, otherwise the offset frames fetch nothing.
 	for (int offset = 1; offset < availableSplits(); offset++)
 	{
+		if (!neighbourInSequence(offsetToDelta(offset, temporalRadius())))
+			continue;
 		Iop *split = dynamic_cast<Iop *>(neighbourInput(offset));
 		if (split && split != iop0)
 			split->request(box, m_beautyChannels, count);
@@ -496,7 +508,11 @@ void DenoiserIop::applyTemporal(float *colorBuf, const Box &format,
 
 		// A frame outside the sequence contributes nothing: the per-pixel weight
 		// stays lower there and the result degrades smoothly to spatial-only, so
-		// the head and tail of a shot do not go black.
+		// the head and tail of a shot do not go black. A Read set to "hold" still
+		// returns pixels there (the end frame again), so check the range first:
+		// warped by the frame delta, a held frame is misplaced content.
+		if (!neighbourInSequence(delta))
+			continue;
 		if (!fetchInterleaved(neighbourInput(offset), m_beautyChannels, format,
 							  neighbour.data(), 3, width, height))
 			continue;

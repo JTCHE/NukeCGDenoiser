@@ -87,8 +87,17 @@ bug and was neither.
 
 ### Full: headless Nuke edge cases, ~2 min
 
-Drive `nuke -ti` with a generated multi-layer EXR sequence and compare RMSE against a
-clean reference. Current state: 24/24 passing.
+`src/test/temporal_suite.py` generates a noisy multi-layer EXR sequence with known motion,
+then checks RMSE against the clean reference: spatial beats noisy, temporal beats spatial on
+every frame (sequence ends included), render order does not change pixels, inactive paths
+equal spatial-only, wild vectors stay finite, an expanded bbox and three concurrent
+Denoisers render a full range. Current state: 25/25 on Windows (CPU, CUDA).
+
+```bash
+SUITE_DIR=<empty folder> SUITE_DEVICES=CPU,CUDA "C:/Program Files/Nuke16.0v8/Nuke16.0.exe" -ti src/test/temporal_suite.py
+```
+
+Install into a scratch `NUKE_PATH` first, so the run does not touch your own `~/.nuke`.
 
 Three things will waste an hour if you do not know them:
 

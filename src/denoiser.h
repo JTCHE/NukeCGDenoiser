@@ -96,6 +96,9 @@ private:
 	// The ONLY sanctioned way to reach an offset input: Op::input(n, offset) is
 	// documented as unchecked, and reading past the array segfaults.
 	Op *neighbourInput(int offset) const;
+	// True when frame t+delta lies inside input 0's frame range. Outside it, a Read
+	// set to "hold" repeats its end frame, which must not be accumulated.
+	bool neighbourInSequence(int delta) const;
 
 	// Runs the temporal stage over `colorBuf` in place. No-op when inactive.
 	void applyTemporal(float *colorBuf, const Box &format,
