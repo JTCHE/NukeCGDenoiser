@@ -12,6 +12,17 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
+# Piped from the web (`irm ... | iex`): there is no script file and no repo next to it.
+# Fetch the repo to a stable folder, so the build cache survives re-runs, and run its copy.
+if (-not $MyInvocation.MyCommand.Path) {
+    $sourceRoot = Join-Path $env:LOCALAPPDATA 'nuke-denoiser-source'
+    $zipPath    = Join-Path $env:TEMP 'NukeCGDenoiser-main.zip'
+    Invoke-WebRequest 'https://github.com/JTCHE/NukeCGDenoiser/archive/refs/heads/main.zip' -OutFile $zipPath
+    Expand-Archive -Path $zipPath -DestinationPath $sourceRoot -Force
+    & (Join-Path $sourceRoot 'NukeCGDenoiser-main\install.ps1') -NukePath $NukePath -Unattended:$Unattended
+    return
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BuildDir  = Join-Path $ScriptDir 'build'
 $DepsDir   = Join-Path $BuildDir 'deps'

@@ -1,12 +1,8 @@
 # Nuke Denoiser
 
-A Nuke node plugin for denoising CG renders using [Intel Open Image Denoise (OIDN)](https://github.com/RenderKit/oidn).
+![Noisy CG render next to the same render after the Denoiser node](denoiser_comparison.png)
 
-Bundles a one-click install script.
-
-Forked from [mateuszwojt/NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDenoiser) with significant Windows stability fixes and quality-of-life improvements.
-
-## ![Denoiser Comparison](denoiser_comparison.png)
+**<p align="center">Denoise CG renders in Nuke with Intel Open Image Denoise.</p>**
 
 ## Requirements
 
@@ -18,40 +14,53 @@ Forked from [mateuszwojt/NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDe
 
 ## Install
 
-Make sure **Nuke is closed** before proceeding with the install.
+Close Nuke first.
 
-### Option A — Straightforward (recommended)
+### Windows
 
-Copy paste this command in a **Windows Command Prompt** _(cmd.exe)_
+In PowerShell:
 
-```
-cd Downloads
-git clone https://github.com/JTCHE/NukeCGDenoiser
-cd NukeCGDenoiser
-install.bat
+```powershell
+irm https://raw.githubusercontent.com/JTCHE/NukeCGDenoiser/main/install.ps1 | iex
 ```
 
-### Option B — Double-click
-
-1. Clone this repository
-2. Double-click `install.bat`
-3. Restart Nuke
-4. Delete this folder
-
-### Option C — Python
-
-```
-python install.py
-```
-
-### What it does
+Then restart Nuke.
 
 The installer:
 
-- Copies the plugin folder to `~/.nuke/nuke-denoiser/`
-- Adds a `pluginAddPath` entry to `~/.nuke/init.py`
-- Cleans up any old denoiser entries from previous installs
-- Is safe to run multiple times _(idempotent)_
+- Downloads the source and finds your Nuke installs; pick one from the menu
+- Fetches CMake, the VS2022 Build Tools and OIDN 2.1.0 if missing (first run: 10-20 min)
+- Builds the plugin and copies it to `~/.nuke/nuke-denoiser/`
+- Adds a `pluginAddPath` entry to `~/.nuke/init.py` and removes entries from older installs
+- Is safe to run again
+
+<details>
+<summary>Manual</summary>
+
+Clone and run the installer, with optional flags:
+
+```bat
+git clone https://github.com/JTCHE/NukeCGDenoiser
+cd NukeCGDenoiser
+install.bat -NukePath "C:\Program Files\Nuke16.0v8" -Unattended
+```
+
+`-NukePath` skips the Nuke picker. `-Unattended` installs the Build Tools without a prompt.
+
+Or build by hand with [Visual Studio 2022](https://visualstudio.microsoft.com/) and
+[CMake 3.10+](https://cmake.org/). **MinGW/GCC does not work**: Nuke ships MSVC import
+libraries that GCC cannot link.
+
+```bat
+cmake -B build -G "Visual Studio 17 2022" -DOIDN_ROOT="c:/bin/oidn-2.1.0" -DCMAKE_PREFIX_PATH="C:/Program Files/Nuke16.0v8"
+cmake --build build --config Release
+copy build\lib\Release\Denoiser.dll %USERPROFILE%\.nuke\nuke-denoiser\denoiser.dll
+```
+
+Set `OIDN_ROOT` to the extracted [OIDN 2.1.0 release](https://github.com/RenderKit/oidn/releases/tag/v2.1.0).
+**Do not use a newer OIDN**: see [What's different from the original](#whats-different-from-the-original).
+
+</details>
 
 ### Uninstall
 
@@ -59,7 +68,7 @@ The installer:
 python uninstall.py
 ```
 
-Removes the `init.py` entry and optionally deletes the plugin folder.
+Removes the `init.py` entry and optionally sends the plugin folder to the Recycle Bin.
 
 ---
 
@@ -111,25 +120,6 @@ Enable the alpha checkbox (A) in the **Beauty layer** knob to also denoise the a
 
 ---
 
-## Building from source
-
-Requires [Visual Studio 2022](https://visualstudio.microsoft.com/) and [CMake 3.10+](https://cmake.org/). **MinGW/GCC cannot be used** — Nuke ships MSVC import libraries (`.lib` files) and GCC cannot link against them.
-
-```bat
-cd nuke-denoiser
-cmake -B build -G "Visual Studio 17 2022" -DOIDN_ROOT="c:/bin/oidn-2.1.0"
-cmake --build build --config Release
-copy build\lib\Release\Denoiser.dll denoiser.dll
-```
-
-The output `denoiser.dll` should be placed at the repo root (or in your `~/.nuke/nuke-denoiser/` install).
-
-**OIDN path:** Replace `c:/bin/oidn-2.1.0` with wherever you extracted the [OIDN 2.1.0 release](https://github.com/RenderKit/oidn/releases/tag/v2.1.0). **Do not use a newer OIDN version** — see the TBB compatibility note above.
-
-**Nuke path:** The CMake config auto-detects Nuke from standard install locations. If detection fails, set `-DNUKE_ROOT="C:/Program Files/Nuke16.0v8"`.
-
----
-
 ## What's different from the original
 
 The original plugin could freeze or crash the host machine when used with animation sequences or multiple concurrent frames. This fork fixes that and adds a proper Windows distribution.
@@ -163,6 +153,6 @@ OIDN 2.4.x ships with `tbb12.dll` v2022.3, which conflicts with Nuke's own `tbb.
 
 ## Acknowledgements
 
-Based on [NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDenoiser) by [Mateusz Wojt](https://github.com/mateuszwojt), licensed under the original project's license (see `LICENSE`).
+Forked from [NukeCGDenoiser](https://github.com/mateuszwojt/NukeCGDenoiser) by [Mateusz Wojt](https://github.com/mateuszwojt), licensed under the original project's license (see `LICENSE`).
 
 Uses [Intel Open Image Denoise](https://github.com/RenderKit/oidn), © Intel Corporation.
