@@ -12,9 +12,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
-# Piped from the web (`irm ... | iex`): there is no script file and no repo next to it.
+# Piped from the web (`irm ... | iex`): there is no repo next to it. Check for a repo file,
+# not only for a script path: iex inside a script reports the caller's path.
 # Fetch the repo into %TEMP% and run its copy. Windows cleans %TEMP%; a re-run soon after reuses the build cache.
-if (-not $MyInvocation.MyCommand.Path) {
+if (-not $MyInvocation.MyCommand.Path -or -not (Test-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'CMakeLists.txt'))) {
     $sourceRoot = Join-Path $env:TEMP 'nuke-denoiser-source'
     $zipPath    = Join-Path $env:TEMP 'NukeCGDenoiser-main.zip'
     Invoke-WebRequest 'https://github.com/JTCHE/NukeCGDenoiser/archive/refs/heads/main.zip' -OutFile $zipPath
