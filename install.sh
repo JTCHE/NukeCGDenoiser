@@ -8,6 +8,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Run from the web (`bash -c "$(curl ...)"`): there is no repo next to the script.
+# Fetch the repo into $TMPDIR, which macOS cleans, and run its copy.
+if [[ ! -f "$0" || ! -f "$SCRIPT_DIR/CMakeLists.txt" ]]; then
+    SOURCE_ROOT="${TMPDIR:-/tmp}/nuke-denoiser-source"
+    mkdir -p "$SOURCE_ROOT"
+    curl -fsSL https://github.com/JTCHE/NukeCGDenoiser/archive/refs/heads/main.tar.gz | tar -xz -C "$SOURCE_ROOT"
+    exec bash "$SOURCE_ROOT/NukeCGDenoiser-main/install.sh" "$@"
+fi
 BUILD_DIR="$SCRIPT_DIR/build/mac"
 DEPS_DIR="$SCRIPT_DIR/build/deps"
 
