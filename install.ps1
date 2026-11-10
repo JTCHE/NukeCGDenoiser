@@ -13,9 +13,9 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 # Piped from the web (`irm ... | iex`): there is no script file and no repo next to it.
-# Fetch the repo to a stable folder, so the build cache survives re-runs, and run its copy.
+# Fetch the repo into %TEMP% and run its copy. Windows cleans %TEMP%; a re-run soon after reuses the build cache.
 if (-not $MyInvocation.MyCommand.Path) {
-    $sourceRoot = Join-Path $env:LOCALAPPDATA 'nuke-denoiser-source'
+    $sourceRoot = Join-Path $env:TEMP 'nuke-denoiser-source'
     $zipPath    = Join-Path $env:TEMP 'NukeCGDenoiser-main.zip'
     Invoke-WebRequest 'https://github.com/JTCHE/NukeCGDenoiser/archive/refs/heads/main.zip' -OutFile $zipPath
     Expand-Archive -Path $zipPath -DestinationPath $sourceRoot -Force
@@ -199,7 +199,7 @@ function Get-OidnRoot {
 function Find-NukeUserDir {
     $nukePathEnv = $env:NUKE_PATH
     if ($nukePathEnv) {
-        foreach ($p in $nukePathEnv -split '[;:]') {
+        foreach ($p in $nukePathEnv -split ';') {
             if ($p -and (Test-Path $p -PathType Container)) { return $p }
         }
     }
