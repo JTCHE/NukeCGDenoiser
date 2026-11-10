@@ -91,7 +91,8 @@ bug and was neither.
 then checks RMSE against the clean reference: spatial beats noisy, temporal beats spatial on
 every frame (sequence ends included), render order does not change pixels, inactive paths
 equal spatial-only, wild vectors stay finite, an expanded bbox and three concurrent
-Denoisers render a full range. Current state: 25/25 on Windows (CPU, CUDA).
+Denoisers render a full range. Current state: 25/25 on Windows (CPU, CUDA) and macOS
+(CPU, Metal; run it with `-t -i` there).
 
 ```bash
 SUITE_DIR=<empty folder> SUITE_DEVICES=CPU,CUDA "C:/Program Files/Nuke16.0v8/Nuke16.0.exe" -ti src/test/temporal_suite.py
